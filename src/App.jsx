@@ -7,13 +7,27 @@ import {
   getStoredToken,
   logout,
 } from "./auth/spotifyAuth";
-import { getRecommendations } from "./api/spotify";
+import {
+  getCurrentlyPlaying,
+  getTrackById,
+  searchByISRC,
+  searchByTitleArtist,
+} from "./api/spotify";
+import {
+  getMBIDFromISRC,
+  getABFeatures,
+  getSimilarMBIDs,
+  mbidToSpotifyTrack,
+} from "./api/musicAnalysis";
 
 export default function App() {
   const [token, setToken] = useState(null);
   const [user, setUser] = useState(null);
-  const [tracks, setTracks] = useState([]);
+  const [currentTrack, setCurrentTrack] = useState(null);
+  const [features, setFeatures] = useState(null); // for RadioUI
+  const [tracks, setTracks] = useState([]); // similar songs
   const [loading, setLoading] = useState(false);
+  const [waiting, setWaiting] = useState(true); // loader until user plays
 
   // handle callback and restore stored token
   useEffect(() => {
@@ -29,59 +43,83 @@ export default function App() {
     }
   }, []);
 
-  // fetch profile + sample API calls once token is set
+  // fetch profile once token is set
   useEffect(() => {
     if (!token) return;
 
-    // fetch profile
     fetch("https://api.spotify.com/v1/me", {
       headers: { Authorization: `Bearer ${token.access_token}` },
     })
       .then((res) => res.json())
       .then((data) => setUser(data))
       .catch(console.error);
-
-    // fetch saved tracks (needs user-library-read)
-    fetch("https://api.spotify.com/v1/me/tracks?limit=5", {
-      headers: { Authorization: `Bearer ${token.access_token}` },
-    })
-      .then((res) => {
-        console.log("Saved tracks response:", res.status, res.statusText);
-        return res.json();
-      })
-      .then((data) => console.log("Saved tracks:", data))
-      .catch(console.error);
-
-    // fetch audio analysis for a test track (needs user token, not client creds)
-    fetch("https://api.spotify.com/v1/audio-analysis/11dFghVXANMlKmJXsNCbNl", {
-      headers: { Authorization: `Bearer ${token.access_token}` },
-    })
-      .then((res) => {
-        console.log("Audio analysis response:", res.status, res.statusText);
-        return res.json();
-      })
-      .then((data) => console.log("Audio analysis:", data))
-      .catch(console.error);
   }, [token]);
 
-  // fetch recommendations when tuning
-  const handleTune = async (values) => {
+  // Poll for currently playing track
+  useEffect(() => {
+    if (!token) return;
+
+    const interval = setInterval(async () => {
+      try {
+        const now = await getCurrentlyPlaying(token.access_token);
+        if (now?.item) {
+          clearInterval(interval);
+          setWaiting(false);
+          setCurrentTrack(now.item);
+
+          // Step 2: analysis
+          const isrc =
+            now.item.external_ids?.isrc ||
+            (await getTrackById(token.access_token, now.item.id))
+              .external_ids.isrc;
+
+          if (isrc) {
+            const mbid = await getMBIDFromISRC(isrc);
+            if (mbid) {
+              const ab = await getABFeatures(mbid);
+              setFeatures({
+                danceability: ab.highlevel?.danceability?.probability || 0.5,
+                energy: ab.highlevel?.energy?.probability || 0.5,
+                valence: ab.highlevel?.mood_happy?.probability || 0.5,
+                tempo: ab.rhythm?.bpm || 120,
+              });
+            }
+          }
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    }, 5000); // poll every 5s
+
+    return () => clearInterval(interval);
+  }, [token]);
+
+  // Fetch similar songs
+  const handleFindSimilar = async () => {
+    if (!currentTrack) return;
     setLoading(true);
     try {
-      const rec = await getRecommendations({
-        seedGenres: values.genres,
-        targets: {
-          danceability: values.danceability,
-          energy: values.energy,
-          valence: values.valence,
-          tempo: values.tempo,
-        },
-        limit: 15,
-        market: "US",
-      });
-      setTracks(rec.tracks || []);
+      const isrc =
+        currentTrack.external_ids?.isrc ||
+        (await getTrackById(token.access_token, currentTrack.id))
+          .external_ids.isrc;
+
+      const mbid = await getMBIDFromISRC(isrc);
+      if (mbid) {
+        const sim = await getSimilarMBIDs(mbid, 25);
+        const similarMbids = Object.values(sim?.[mbid]?.["0"] || []).map(
+          (arr) => arr[0]
+        );
+
+        const spotifyTracks = [];
+        for (const id of similarMbids) {
+          const spTrack = await mbidToSpotifyTrack(token.access_token, id);
+          if (spTrack) spotifyTracks.push(spTrack);
+        }
+        setTracks(spotifyTracks);
+      }
     } catch (e) {
-      console.error("Error fetching recommendations:", e);
+      console.error("Error fetching similar songs:", e);
     } finally {
       setLoading(false);
     }
@@ -100,6 +138,15 @@ export default function App() {
     );
   }
 
+  // show loader until track is detected
+  if (waiting) {
+    return (
+      <div style={{ display: "grid", placeItems: "center", height: "100vh" }}>
+        <h2>Please play a song on Spotify to begin…</h2>
+      </div>
+    );
+  }
+
   // main UI
   return (
     <div
@@ -114,10 +161,38 @@ export default function App() {
     >
       <div style={{ maxWidth: 980, width: "100%", padding: "0 16px" }}>
         <h2 style={{ textAlign: "center" }}>
-          {user ? `Hello, ${user.display_name} looking for new music?` : "Loading user..."}
+          {user ? `Hello, ${user.display_name}!` : "Loading user..."}
         </h2>
-        <RadioUI onTune={handleTune} onSave={() => {}} loading={loading} />
+
+        {/* Show currently playing */}
+        {currentTrack && (
+          <div style={{ textAlign: "center", marginBottom: "20px" }}>
+            <img
+              src={currentTrack.album.images[0]?.url}
+              alt={currentTrack.name}
+              style={{ width: "200px", borderRadius: "8px" }}
+            />
+            <h3>{currentTrack.name}</h3>
+            <p>{currentTrack.artists.map((a) => a.name).join(", ")}</p>
+          </div>
+        )}
+
+        {/* Radio UI with analysis features */}
+        <RadioUI
+          onTune={() => {}}
+          onSave={() => {}}
+          loading={loading}
+          defaultValues={features}
+        />
+
+        {/* Similar songs button */}
+        <button style={{ marginTop: "20px" }} onClick={handleFindSimilar}>
+          Find Similar Songs
+        </button>
+
+        {/* Display TrackList */}
         <TrackList tracks={tracks} />
+
         <button style={{ marginTop: "20px" }} onClick={logout}>
           Logout
         </button>

@@ -19,17 +19,45 @@ export default function TrackList({ tracks = [] }) {
             boxShadow: '6px 8px 0 #111',
           }}
         >
+          {/* Album art */}
           <img
             src={t.album.images?.[0]?.url}
-            alt=""
+            alt={`${t.name} album cover`}
             width="56" height="56"
             style={{ borderRadius: 8, objectFit: 'cover' }}
           />
+
+          {/* Song info */}
           <div>
             <div style={{ fontWeight: 800 }}>{t.name}</div>
-            <div style={{ opacity: 0.75 }}>{t.artists.map((a) => a.name).join(', ')}</div>
+            <div style={{ opacity: 0.75, fontSize: "0.9em" }}>
+              {t.artists.map((a) => a.name).join(', ')}
+            </div>
+            {t.preview_url && (
+              <audio
+                src={t.preview_url}
+                controls
+                style={{ marginTop: 6, width: "100%" }}
+              />
+            )}
           </div>
-          <a href={t.external_urls.spotify} target="_blank" rel="noreferrer">Open</a>
+
+          {/* Open in Spotify */}
+          <a
+            href={t.external_urls.spotify}
+            target="_blank"
+            rel="noreferrer"
+            style={{
+              fontWeight: 600,
+              color: "#1DB954",
+              textDecoration: "none",
+              padding: "6px 12px",
+              border: "2px solid #1DB954",
+              borderRadius: 8,
+            }}
+          >
+            Open
+          </a>
         </article>
       ))}
     </div>

@@ -1,9 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import styles from '../styles/radio.module.css';
 
 const GENRES = ['pop', 'rock', 'jazz', 'hip-hop', 'dance', 'electronic', 'indie'];
 
-export default function RadioUI({ onTune, onSave }) {
+export default function RadioUI({ onTune, onSave, defaultValues }) {
   const [vals, setVals] = useState({
     danceability: 0.7,
     energy: 0.6,
@@ -11,6 +11,16 @@ export default function RadioUI({ onTune, onSave }) {
     tempo: 120,
     genres: ['pop'],
   });
+
+  // 🔑 Update state when defaultValues arrive from App.jsx
+  useEffect(() => {
+    if (defaultValues) {
+      setVals((v) => ({
+        ...v,
+        ...defaultValues, // override danceability, energy, valence, tempo
+      }));
+    }
+  }, [defaultValues]);
 
   const setNum = (k) => (e) => setVals((v) => ({ ...v, [k]: Number(e.target.value) }));
   const toggleGenre = (g) => {
@@ -111,7 +121,7 @@ export default function RadioUI({ onTune, onSave }) {
       <div className={styles.actions}>
         <button
           className={`${styles.btn} ${styles.btnPrimary}`}
-          onClick={(e) => { e.preventDefault(); onTune(vals); }} // ✅ send current state
+          onClick={(e) => { e.preventDefault(); onTune(vals); }}
           aria-label="Tune In"
         >
           Tune In
