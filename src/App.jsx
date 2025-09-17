@@ -95,39 +95,81 @@ export default function App() {
   }, [token]);
 
   // Fetch similar songs
+  // const handleFindSimilar = async () => {
+  //   if (!currentTrack) return;
+  //   setLoading(true);
+  //   try {
+  //     const isrc =
+  //       currentTrack.external_ids?.isrc ||
+  //       (await getTrackById(token.access_token, currentTrack.id))
+  //         .external_ids.isrc;
+
+  //     const mbid = await getMBIDFromISRC(isrc);
+  //     if (mbid) {
+  //       const sim = await getSimilarMBIDs(mbid, 25);
+  //       const similarMbids = Object.values(sim?.[mbid]?.["0"] || [])
+  //       .map((arr) => {
+  //         console.log("Similarity response:", sim); 
+  //         return arr?.[0]
+  //       })
+  //       .filter((id) => id); // remove null/undefined
+
+
+  //       const spotifyTracks = [];
+  //       for (const id of similarMbids) {
+  //         const spTrack = await mbidToSpotifyTrack(token.access_token, id);
+  //         if (spTrack) spotifyTracks.push(spTrack);
+  //       }
+  //       setTracks(spotifyTracks);
+  //     }
+  //   } catch (e) {
+  //     console.error("Error fetching similar songs:", e);
+  //   } finally {
+  //     setLoading(false);
+  //   }
+  // };
+
+
   const handleFindSimilar = async () => {
-    if (!currentTrack) return;
-    setLoading(true);
-    try {
-      const isrc =
-        currentTrack.external_ids?.isrc ||
-        (await getTrackById(token.access_token, currentTrack.id))
-          .external_ids.isrc;
+  if (!currentTrack) return;
+  setLoading(true);
+  try {
+    const isrc =
+      currentTrack.external_ids?.isrc ||
+      (await getTrackById(token.access_token, currentTrack.id))
+        .external_ids.isrc;
 
-      const mbid = await getMBIDFromISRC(isrc);
-      if (mbid) {
-        const sim = await getSimilarMBIDs(mbid, 25);
-        const similarMbids = Object.values(sim?.[mbid]?.["0"] || [])
-        .map((arr) => {
-          console.log("Similarity response:", sim); 
-          return arr?.[0]
-        })
-        .filter((id) => id); // remove null/undefined
+    const mbid = await getMBIDFromISRC(isrc);
+    if (mbid) {
+      const sim = await getSimilarMBIDs(mbid, 25);
+      console.log("Similarity response:", sim);
 
+      // ✅ Extract recording_mbids sorted by distance
+      const similarList = sim?.[mbid]?.[0] || [];
+      const sorted = similarList
+        .filter((x) => x.recording_mbid) // remove bad entries
+        .sort((a, b) => a.distance - b.distance) // smaller distance first
+        .slice(0, 10); // pick top 10 closest matches (adjust if needed)
 
-        const spotifyTracks = [];
-        for (const id of similarMbids) {
-          const spTrack = await mbidToSpotifyTrack(token.access_token, id);
-          if (spTrack) spotifyTracks.push(spTrack);
-        }
-        setTracks(spotifyTracks);
+      // Convert MBIDs → Spotify tracks
+      const spotifyTracks = [];
+      for (const s of sorted) {
+        const spTrack = await mbidToSpotifyTrack(
+          token.access_token,
+          s.recording_mbid
+        );
+        if (spTrack) spotifyTracks.push(spTrack);
       }
-    } catch (e) {
-      console.error("Error fetching similar songs:", e);
-    } finally {
-      setLoading(false);
+
+      setTracks(spotifyTracks); // show in TrackList
     }
-  };
+  } catch (e) {
+    console.error("Error fetching similar songs:", e);
+  } finally {
+    setLoading(false);
+  }
+};
+
 
   // show login if no token yet
   if (!token) {
