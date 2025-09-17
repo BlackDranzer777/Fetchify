@@ -8,12 +8,22 @@ const REDIRECT_URI = import.meta.env.VITE_REDIRECT_URI;
 //   'playlist-modify-private',
 // ];
 
+// const SCOPES = [
+//   'user-read-private',
+//   'playlist-modify-public',
+//   'playlist-modify-private',
+//   'user-library-read',      // ✅ needed for /me/tracks
+//   'user-library-modify',    // ✅ if you want to save tracks
+// ];
+
 const SCOPES = [
   'user-read-private',
   'playlist-modify-public',
   'playlist-modify-private',
-  'user-library-read',      // ✅ needed for /me/tracks
-  'user-library-modify',    // ✅ if you want to save tracks
+  'user-library-read',
+  'user-library-modify',
+  'user-read-currently-playing',  // ✅ needed
+  'user-read-playback-state',     // ✅ recommended
 ];
 
 const TOKEN_KEY = 'fetchify:spotify_token';
