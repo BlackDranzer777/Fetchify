@@ -107,9 +107,13 @@ export default function App() {
       const mbid = await getMBIDFromISRC(isrc);
       if (mbid) {
         const sim = await getSimilarMBIDs(mbid, 25);
-        const similarMbids = Object.values(sim?.[mbid]?.["0"] || []).map(
-          (arr) => arr[0]
-        );
+        const similarMbids = Object.values(sim?.[mbid]?.["0"] || [])
+        .map((arr) => {
+          console.log("Similarity response:", sim); 
+          return arr?.[0]
+        })
+        .filter((id) => id); // remove null/undefined
+
 
         const spotifyTracks = [];
         for (const id of similarMbids) {

@@ -105,6 +105,8 @@ export async function getSimilarMBIDs(mbid, limit = 25) {
 import { searchByISRC, searchByTitleArtist } from "./spotify";
 
 export async function mbidToSpotifyTrack(token, mbid) {
+  if (!mbid) return null; // ✅ safety check
+
   const res = await fetch(
     `https://musicbrainz.org/ws/2/recording/${mbid}?inc=artist-credits+releases+isrcs&fmt=json`,
     {
