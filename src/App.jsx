@@ -114,7 +114,7 @@ export default function App() {
     >
       <div style={{ maxWidth: 980, width: "100%", padding: "0 16px" }}>
         <h2 style={{ textAlign: "center" }}>
-          {user ? `Hello, ${user.display_name}` : "Loading user..."}
+          {user ? `Hello, ${user.display_name} looking for new music?` : "Loading user..."}
         </h2>
         <RadioUI onTune={handleTune} onSave={() => {}} loading={loading} />
         <TrackList tracks={tracks} />
