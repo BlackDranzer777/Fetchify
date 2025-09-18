@@ -185,9 +185,14 @@ export default function App() {
 
     // Genre similarity
     if (feat1.genre && feat2.genre) {
-      const genreSim = calculateGenreSimilarity(feat1.genre, feat2.genre);
-      totalSim += genreSim * weights.genre;
-      totalWeight += weights.genre;
+      try {
+        const genreSim = calculateGenreSimilarity(feat1.genre, feat2.genre);
+        totalSim += genreSim * weights.genre;
+        totalWeight += weights.genre;
+      } catch (err) {
+        console.warn("Error calculating genre similarity:", err);
+        // Skip genre similarity if it fails
+      }
     }
 
     return totalWeight > 0 ? totalSim / totalWeight : 0;
@@ -233,32 +238,54 @@ export default function App() {
 
   // Calculate cosine similarity between two genre probability distributions
   const calculateGenreCosineSimilarity = (dist1, dist2) => {
-    // Get all unique genres
-    const allGenres = new Set([...Object.keys(dist1), ...Object.keys(dist2)]);
-    
-    let dotProduct = 0;
-    let norm1 = 0;
-    let norm2 = 0;
-    
-    for (const genre of allGenres) {
-      const prob1 = parseFloat(dist1[genre] || 0);
-      const prob2 = parseFloat(dist2[genre] || 0);
+    try {
+      // Ensure both distributions are objects
+      if (!dist1 || !dist2 || typeof dist1 !== 'object' || typeof dist2 !== 'object') {
+        return 0;
+      }
+
+      // Get all unique genres
+      const allGenres = new Set([...Object.keys(dist1), ...Object.keys(dist2)]);
       
-      dotProduct += prob1 * prob2;
-      norm1 += prob1 * prob1;
-      norm2 += prob2 * prob2;
+      if (allGenres.size === 0) return 0;
+      
+      let dotProduct = 0;
+      let norm1 = 0;
+      let norm2 = 0;
+      
+      for (const genre of allGenres) {
+        const prob1 = parseFloat(dist1[genre] || 0);
+        const prob2 = parseFloat(dist2[genre] || 0);
+        
+        // Skip if either probability is NaN
+        if (isNaN(prob1) || isNaN(prob2)) continue;
+        
+        dotProduct += prob1 * prob2;
+        norm1 += prob1 * prob1;
+        norm2 += prob2 * prob2;
+      }
+      
+      // Avoid division by zero
+      if (norm1 === 0 || norm2 === 0) return 0;
+      
+      const similarity = dotProduct / (Math.sqrt(norm1) * Math.sqrt(norm2));
+      
+      // Ensure result is a valid number
+      return isNaN(similarity) ? 0 : Math.max(0, Math.min(1, similarity));
+      
+    } catch (err) {
+      console.warn("Error in cosine similarity calculation:", err);
+      return 0;
     }
-    
-    // Avoid division by zero
-    if (norm1 === 0 || norm2 === 0) return 0;
-    
-    return dotProduct / (Math.sqrt(norm1) * Math.sqrt(norm2));
   };
 
   // IMPROVED Find Similar Songs Function
   const handleFindSimilar = async () => {
     if (!currentTrack) return;
     setLoading(true);
+    
+    // Clear previous results to prevent showing stale data if there's an error
+    setTracks([]);
 
     try {
       // Step 1: Get ISRC
@@ -334,16 +361,40 @@ export default function App() {
 
           if (res.ok) {
             const data = await res.json();
-            const spTrack = data.tracks?.items?.[0];
-            if (spTrack && spTrack.id && spTrack.name && spTrack.artists) {
-              scoredCandidates.push({
-                ...spTrack,
-                similarity: similarity.toFixed(3),
-                features: feat
-              });
+            
+            // Add comprehensive validation for Spotify track data
+            if (data && data.tracks && data.tracks.items && Array.isArray(data.tracks.items)) {
+              const spTrack = data.tracks.items[0];
+              
+              // Validate all required properties
+              if (spTrack && 
+                  typeof spTrack.id === 'string' && 
+                  typeof spTrack.name === 'string' && 
+                  Array.isArray(spTrack.artists) && 
+                  spTrack.artists.length > 0 &&
+                  spTrack.artists[0].name &&
+                  spTrack.external_urls &&
+                  spTrack.external_urls.spotify) {
+                
+                scoredCandidates.push({
+                  id: spTrack.id,
+                  name: spTrack.name,
+                  artists: spTrack.artists,
+                  album: spTrack.album || { images: [] },
+                  external_urls: spTrack.external_urls,
+                  preview_url: spTrack.preview_url || null,
+                  popularity: spTrack.popularity || 0,
+                  similarity: similarity.toFixed(3),
+                  features: feat
+                });
+              } else {
+                console.warn("Invalid Spotify track structure:", spTrack);
+              }
             } else {
-              console.warn("Invalid Spotify track data:", spTrack);
+              console.warn("Invalid Spotify search response:", data);
             }
+          } else {
+            console.warn("Spotify search failed:", res.status, res.statusText);
           }
         } catch (err) {
           console.warn("Skipping candidate:", c.recording_mbid, err.message);
@@ -357,12 +408,22 @@ export default function App() {
         .slice(0, 10);
 
       console.log("Found", topMatches.length, "similar tracks:");
-      topMatches.forEach(track => {
-        const artistName = track.artists?.[0]?.name || 'Unknown Artist';
-        console.log(`  ${track.similarity} - ${track.name} by ${artistName}`);
+      topMatches.forEach((track, index) => {
+        try {
+          const artistName = track.artists?.[0]?.name || 'Unknown Artist';
+          console.log(`  ${track.similarity} - ${track.name} by ${artistName}`);
+        } catch (err) {
+          console.warn(`Error logging track ${index}:`, err);
+        }
       });
 
-      setTracks(topMatches);
+      // Final safety check before setting state
+      try {
+        setTracks(topMatches);
+      } catch (err) {
+        console.error("Error setting tracks state:", err);
+        setTracks([]); // Set empty array as fallback
+      }
 
     } catch (e) {
       console.error("Error fetching similar songs:", e);
