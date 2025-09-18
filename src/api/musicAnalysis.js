@@ -86,7 +86,7 @@ export async function getMBIDFromISRC(isrc) {
 // Get high-level features (mood, danceability, genre, etc.)
 export async function getABFeatures(mbid) {
   const res = await fetch(
-    `https://acousticbrainz.org/api/v1/${mbid}/high-level?map_classes=true`
+    `https://acousticbrainz.org/api/v1/${mbid}/high-level?map_classes=true&fmt=json`
   );
   if (!res.ok) throw new Error("AcousticBrainz feature fetch failed");
   return res.json();
@@ -95,7 +95,7 @@ export async function getABFeatures(mbid) {
 // ✅ Get similar tracks (via Netlify proxy)
 export async function getSimilarMBIDs(mbid, limit = 25) {
   const res = await fetch(
-    `/.netlify/functions/acousticProxy?path=/api/v1/similarity/moods?recording_ids=${mbid}&n_neighbours=${limit}&remove_dups=all`
+    `/.netlify/functions/acousticProxy?path=/api/v1/similarity/moods?recording_ids=${mbid}&n_neighbours=${limit}&remove_dups=all&fmt=json`
   );
   if (!res.ok) throw new Error("AcousticBrainz similarity fetch failed");
   return res.json();
