@@ -79,35 +79,51 @@ export async function getABLowLevel(mbid) {
  * Extract normalized features from AcousticBrainz (high + low)
  * Returns consistent values for re-ranking
  */
+// src/api/musicAnalysis.js
+
 export async function extractFeatures(mbid) {
-  const high = await getABFeatures(mbid);
-  const low = await getABLowLevel(mbid);
+  const url = `https://acousticbrainz.org/api/v1/${mbid}/high-level?map_classes=true&fmt=json`;
+  const res = await fetch(url);
 
-  const feat = {
-    tempo: low.rhythm?.bpm || 120,
-    dance:
-      high.highlevel?.danceability?.value === "danceable"
-        ? high.highlevel?.danceability?.probability
-        : 0,
-    energy:
-      high.highlevel?.energy?.value === "energetic"
-        ? high.highlevel?.energy?.probability
-        : 0,
-    valence:
-      high.highlevel?.mood_happy?.value === "happy"
-        ? high.highlevel?.mood_happy?.probability
-        : 0,
-    flux: low.lowlevel?.spectral_flux?.mean || 0.5,
-    // ⚠️ Placeholder (AcousticBrainz doesn’t directly return lyrics info)
-    hasLyrics: high.highlevel?.ismir04_rhythm?.value === "lyrics",
-  };
+  if (res.status === 429) {
+    // Respect rate limiting
+    const resetIn = res.headers.get("X-RateLimit-Reset-In") || 5;
+    console.warn(`Rate limited. Retrying in ${resetIn}s...`);
+    await new Promise(r => setTimeout(r, resetIn * 1000));
+    return extractFeatures(mbid); // retry once
+  }
 
-  // Fusion score (used for ranking)
-  const fusion =
-    0.3 * feat.dance +
-    0.3 * feat.energy +
-    0.2 * feat.valence +
-    0.2 * (feat.tempo / 200);
+  if (!res.ok) throw new Error(`AB high-level fetch failed for ${mbid}`);
 
-  return { ...feat, fusion };
+  const high = await res.json();
+
+  // Fetch low-level too
+  const lowRes = await fetch(`https://acousticbrainz.org/api/v1/${mbid}/low-level?fmt=json`);
+  if (lowRes.status === 429) {
+    const resetIn = lowRes.headers.get("X-RateLimit-Reset-In") || 5;
+    console.warn(`Rate limited on low-level. Retrying in ${resetIn}s...`);
+    await new Promise(r => setTimeout(r, resetIn * 1000));
+    return extractFeatures(mbid);
+  }
+  if (!lowRes.ok) throw new Error(`AB low-level fetch failed for ${mbid}`);
+  const low = await lowRes.json();
+
+  // Safely extract values
+  const dance = high.highlevel?.danceability?.probability ?? 0;
+  const energy = high.highlevel?.energy?.probability ?? 0;
+  const valence = high.highlevel?.mood_happy?.probability ?? 0;
+  const flux = low.lowlevel?.spectral_flux?.mean ?? 0;
+  const tempo = low.rhythm?.bpm ?? 120;
+  const hasLyrics = !!high.highlevel?.voice_instrumental?.value &&
+    high.highlevel?.voice_instrumental?.value === "voice";
+
+  // Metadata (title + artist)
+  const title = low.metadata?.tags?.title?.[0] || null;
+  const artist = low.metadata?.tags?.artist?.[0] || null;
+
+  // Fusion score (example: average of main factors)
+  const fusion = (dance + energy + valence + flux) / 4;
+
+  return { dance, energy, valence, flux, tempo, hasLyrics, title, artist, fusion };
 }
+

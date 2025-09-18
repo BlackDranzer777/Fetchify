@@ -158,34 +158,28 @@ export default function App() {
     // Step 3: Extract features for current song
     const currentFeat = await extractFeatures(mbid);
     if (!currentFeat) {
-      console.warn("No features available for current track");
+      console.warn("No features for current track");
       return;
     }
     const currentFusion = currentFeat.fusion;
 
-    // Step 4: Get AB Similarity (wider pool: 200)
-    const sim = await getSimilarMBIDs(mbid, 200);
-    const candidates = sim?.[mbid]?.[0] || [];
+    // Step 4: Get AB Similarity (pool = 100)
+    const sim = await getSimilarMBIDs(mbid, 100);
+    const candidates = (sim?.[mbid]?.[0] || []).filter(
+      (c) => c.recording_mbid && c.recording_mbid !== mbid // skip self
+    );
 
     const validCandidates = [];
 
     for (const c of candidates) {
-      if (!c.recording_mbid) continue;
+      if (validCandidates.length >= 2) break; // ✅ stop after 2
 
       try {
-        const feat = await extractFeatures(c.recording_mbid);
+        // Respect rate-limit by spacing out calls
+        await new Promise(r => setTimeout(r, 1000));
 
-        // Skip if AB returned no data
-        if (
-          !feat ||
-          (feat.dance === null &&
-            feat.energy === null &&
-            feat.valence === null &&
-            feat.flux === null)
-        ) {
-          console.warn("Skipping MBID with no AB data:", c.recording_mbid);
-          continue;
-        }
+        const feat = await extractFeatures(c.recording_mbid);
+        if (!feat) continue;
 
         // Tolerance checks
         const withinTolerance =
@@ -200,43 +194,38 @@ export default function App() {
 
         const fusionDiff = Math.abs(feat.fusion - currentFusion);
 
-        validCandidates.push({
-          mbid: c.recording_mbid,
-          fusion: feat.fusion,
-          fusionDiff,
-        });
+        // Search directly in Spotify with title + artist
+        if (feat.title && feat.artist) {
+          const query = `track:"${feat.title}" artist:"${feat.artist}"`;
+          const res = await fetch(
+            `https://api.spotify.com/v1/search?q=${encodeURIComponent(query)}&type=track&limit=1`,
+            { headers: { Authorization: `Bearer ${token.access_token}` } }
+          );
 
-        // ✅ Stop once we find 2
-        if (validCandidates.length === 2) break;
+          if (res.ok) {
+            const data = await res.json();
+            const spTrack = data.tracks?.items?.[0];
+            if (spTrack) {
+              validCandidates.push({
+                ...spTrack,
+                fusionDiff: fusionDiff.toFixed(3),
+              });
+            }
+          }
+        }
       } catch (err) {
         console.warn("Skipping candidate:", c.recording_mbid, err);
       }
     }
 
-    if (!validCandidates.length) {
-      console.warn("No valid candidates found");
-      return;
-    }
-
-    // Step 5: Convert MBIDs -> Spotify Tracks
-    const spotifyTracks = [];
-    for (const c of validCandidates) {
-      const spTrack = await mbidToSpotifyTrack(token.access_token, c.mbid);
-      if (spTrack) {
-        spotifyTracks.push({
-          ...spTrack,
-          fusionDiff: c.fusionDiff.toFixed(3),
-        });
-      }
-    }
-
-    setTracks(spotifyTracks);
+    setTracks(validCandidates);
   } catch (e) {
     console.error("Error fetching similar songs:", e);
   } finally {
     setLoading(false);
   }
 };
+
 
 
 
