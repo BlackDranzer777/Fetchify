@@ -5,23 +5,28 @@ export async function handler(event) {
     return { statusCode: 400, body: "Missing path" };
   }
 
-  // Ensure fmt=json is appended
+  // decode what frontend encoded
+  path = decodeURIComponent(path);
+
+  // Ensure fmt=json is present
   if (!path.includes("fmt=json")) {
     path += path.includes("?") ? "&fmt=json" : "?fmt=json";
   }
 
   const url = `https://acousticbrainz.org${path}`;
+  console.log("Proxying to AcousticBrainz:", url);
+
   try {
     const res = await fetch(url);
-    const contentType = res.headers.get("content-type") || "text/plain";
     const body = await res.text();
-
     return {
       statusCode: res.status,
-      headers: { "Content-Type": contentType },
+      headers: {
+        "Content-Type": res.headers.get("content-type") || "application/json",
+      },
       body,
     };
   } catch (err) {
-    return { statusCode: 500, body: err.toString() };
+    return { statusCode: 500, body: `Proxy error: ${err.toString()}` };
   }
 }
