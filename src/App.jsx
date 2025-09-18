@@ -335,12 +335,14 @@ export default function App() {
           if (res.ok) {
             const data = await res.json();
             const spTrack = data.tracks?.items?.[0];
-            if (spTrack) {
+            if (spTrack && spTrack.id && spTrack.name && spTrack.artists) {
               scoredCandidates.push({
                 ...spTrack,
                 similarity: similarity.toFixed(3),
                 features: feat
               });
+            } else {
+              console.warn("Invalid Spotify track data:", spTrack);
             }
           }
         } catch (err) {
@@ -350,12 +352,14 @@ export default function App() {
 
       // Step 6: Sort by similarity and return top matches
       const topMatches = scoredCandidates
+        .filter(track => track && track.id && track.name && track.artists) // Filter out invalid tracks
         .sort((a, b) => parseFloat(b.similarity) - parseFloat(a.similarity))
         .slice(0, 10);
 
       console.log("Found", topMatches.length, "similar tracks:");
       topMatches.forEach(track => {
-        console.log(`  ${track.similarity} - ${track.name} by ${track.artists[0].name}`);
+        const artistName = track.artists?.[0]?.name || 'Unknown Artist';
+        console.log(`  ${track.similarity} - ${track.name} by ${artistName}`);
       });
 
       setTracks(topMatches);
