@@ -16,7 +16,8 @@ import {
   getABFeatures,
   getSimilarMBIDs,
   mbidToSpotifyTrack,
-  getABLowLevel
+  getABLowLevel,
+  extractFeatures
 } from "./api/musicAnalysis";
 
 
