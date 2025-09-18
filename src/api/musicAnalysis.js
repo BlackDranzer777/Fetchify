@@ -133,3 +133,14 @@ export async function mbidToSpotifyTrack(token, mbid) {
 
   return null;
 }
+
+
+
+// Get low-level features (BPM, key, loudness, etc.)
+export async function getABLowLevel(mbid) {
+  const res = await fetch(
+    `https://acousticbrainz.org/api/v1/${mbid}/low-level?fmt=json`
+  );
+  if (!res.ok) throw new Error("AcousticBrainz low-level fetch failed");
+  return res.json();
+}

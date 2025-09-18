@@ -74,23 +74,32 @@ export default function App() {
           if (isrc) {
             const mbid = await getMBIDFromISRC(isrc);
             if (mbid) {
-              const ab = await getABFeatures(mbid);
+              const abHigh = await getABFeatures(mbid);
+              const abLow = await getABLowLevel(mbid);
 
-              // ✅ Debug logs for current track
-              console.log("🎵 Now playing:", now.item.name, "-", now.item.artists.map(a => a.name).join(", "));
-              console.log("Danceability:", ab.highlevel?.danceability?.probability);
-              console.log("Energy:", ab.highlevel?.energy?.probability);
-              console.log("Mood (Happy):", ab.highlevel?.mood_happy?.probability);
-              console.log("Mood (Sad):", ab.highlevel?.mood_sad?.probability);
-              console.log("Mood (Relaxed):", ab.highlevel?.mood_relaxed?.probability);
-              console.log("Tempo:", ab.rhythm?.bpm);
-              console.log("Genres:", ab.highlevel?.genre_dortmund?.value);
+              // ✅ Log EVERYTHING
+              console.log("=== HIGH LEVEL FEATURES ===");
+              console.log("Danceability:", abHigh?.highlevel?.danceability);
+              console.log("Energy:", abHigh?.highlevel?.energy);
+              console.log("Mood Happy:", abHigh?.highlevel?.mood_happy);
+              console.log("Mood Sad:", abHigh?.highlevel?.mood_sad);
+              console.log("Genre:", abHigh?.highlevel?.genre_dortmund);
 
+              console.log("=== LOW LEVEL FEATURES ===");
+              console.log("Tempo:", abLow?.rhythm?.bpm);
+              console.log("Beats Position:", abLow?.rhythm?.beats_position?.slice(0, 5));
+              console.log("Key:", abLow?.tonal?.key_key, abLow?.tonal?.key_scale);
+              console.log("Chords:", abLow?.tonal?.chords_key, abLow?.tonal?.chords_scale);
+              console.log("Loudness:", abLow?.lowlevel?.average_loudness);
+              console.log("Spectral Flux:", abLow?.lowlevel?.spectral_flux?.mean);
+              console.log("MFCC (first 5):", abLow?.lowlevel?.mfcc?.mean?.slice(0, 5));
+
+              // ✅ Store some representative ones for UI
               setFeatures({
-                danceability: ab.highlevel?.danceability?.probability || 0.5,
-                energy: ab.highlevel?.energy?.probability || 0.5,
-                valence: ab.highlevel?.mood_happy?.probability || 0.5,
-                tempo: ab.rhythm?.bpm || 120,
+                danceability: abHigh.highlevel?.danceability?.probability || 0.5,
+                energy: abHigh.highlevel?.energy?.probability || 0.5,
+                valence: abHigh.highlevel?.mood_happy?.probability || 0.5,
+                tempo: abLow?.rhythm?.bpm || abHigh.rhythm?.bpm || 120,
               });
             }
           }
