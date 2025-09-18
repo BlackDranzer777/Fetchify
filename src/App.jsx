@@ -139,86 +139,119 @@ export default function App() {
 
   // Find Similar Songs
     const handleFindSimilar = async () => {
-      if (!currentTrack) return;
-      setLoading(true);
+  if (!currentTrack) return;
+  setLoading(true);
+
+  // helper to extract features
+  const extractFeatures = async (mbid) => {
+    const [high, low] = await Promise.all([
+      getABFeatures(mbid),
+      getABLowLevel(mbid),
+    ]);
+
+    const dance =
+      high.highlevel?.danceability?.all?.["danceable"] ??
+      high.highlevel?.danceability?.probability ??
+      0.5;
+    const energy =
+      high.highlevel?.energy?.all?.["energetic"] ??
+      high.highlevel?.energy?.probability ??
+      0.5;
+    const valence =
+      high.highlevel?.mood_happy?.all?.["happy"] ??
+      high.highlevel?.mood_happy?.probability ??
+      0.5;
+
+    const flux = low.lowlevel?.spectral_flux?.mean ?? 0.5;
+    const tempo = low.rhythm?.bpm ?? 120;
+    const hasLyrics = !!high.metadata?.tags?.lyrics;
+
+    // fusion = weighted combination
+    const fusion = 0.25 * dance + 0.25 * energy + 0.25 * valence + 0.25 * flux;
+
+    return { dance, energy, valence, flux, tempo, hasLyrics, fusion };
+  };
+
+  try {
+    // Step 1: Get ISRC
+    const isrc =
+      currentTrack.external_ids?.isrc ||
+      (await getTrackById(token.access_token, currentTrack.id)).external_ids
+        .isrc;
+
+    // Step 2: ISRC -> MBID
+    const mbid = await getMBIDFromISRC(isrc);
+    if (!mbid) {
+      console.warn("No MBID found for ISRC:", isrc);
+      return;
+    }
+
+    // Step 3: Extract features for current song
+    const currentFeat = await extractFeatures(mbid);
+    const currentFusion = currentFeat.fusion;
+
+    // Step 4: Get AB Similarity candidates
+    const sim = await getSimilarMBIDs(mbid, 50);
+    const candidates = sim?.[mbid]?.[0] || [];
+
+    const validCandidates = [];
+
+    for (const c of candidates) {
+      if (!c.recording_mbid) continue;
+
       try {
-        // Step 1: Get ISRC
-        const isrc =
-          currentTrack.external_ids?.isrc ||
-          (await getTrackById(token.access_token, currentTrack.id)).external_ids.isrc;
+        const feat = await extractFeatures(c.recording_mbid);
 
-        // Step 2: ISRC -> MBID
-        const mbid = await getMBIDFromISRC(isrc);
-        if (!mbid) {
-          console.warn("No MBID found for ISRC:", isrc);
-          return;
-        }
+        // Tolerance checks
+        const withinTolerance =
+          Math.abs(feat.dance - currentFeat.dance) <= 0.2 &&
+          Math.abs(feat.energy - currentFeat.energy) <= 0.2 &&
+          Math.abs(feat.valence - currentFeat.valence) <= 0.2 &&
+          Math.abs(feat.flux - currentFeat.flux) <= 0.2 &&
+          Math.abs(feat.tempo - currentFeat.tempo) <= 30 &&
+          feat.hasLyrics === currentFeat.hasLyrics;
 
-        // Step 3: Extract features for current song
-        const currentFeat = await extractFeatures(mbid);
-        const currentFusion = currentFeat.fusion;
+        if (!withinTolerance) continue;
 
-        // Step 4: Get AB Similarity candidates
-        const sim = await getSimilarMBIDs(mbid, 50);
-        const candidates = sim?.[mbid]?.[0] || [];
+        const fusionDiff = Math.abs(feat.fusion - currentFusion);
 
-        const validCandidates = [];
-
-        for (const c of candidates) {
-          if (!c.recording_mbid) continue;
-
-          try {
-            const feat = await extractFeatures(c.recording_mbid);
-
-            // Tolerance checks
-            const withinTolerance =
-              Math.abs(feat.dance - currentFeat.dance) <= 0.2 &&
-              Math.abs(feat.energy - currentFeat.energy) <= 0.2 &&
-              Math.abs(feat.valence - currentFeat.valence) <= 0.2 &&
-              Math.abs(feat.flux - currentFeat.flux) <= 0.2 &&
-              Math.abs(feat.tempo - currentFeat.tempo) <= 30 &&
-              feat.hasLyrics === currentFeat.hasLyrics;
-
-            if (!withinTolerance) continue;
-
-            const fusionDiff = Math.abs(feat.fusion - currentFusion);
-
-            validCandidates.push({
-              mbid: c.recording_mbid,
-              fusion: feat.fusion,
-              fusionDiff,
-            });
-          } catch (err) {
-            console.warn("Skipping candidate:", c.recording_mbid, err);
-          }
-        }
-
-        // Step 5: Pick closest 2
-        const topCandidates = validCandidates
-          .sort((a, b) => a.fusionDiff - b.fusionDiff)
-          .slice(0, 2);
-
-        console.log("Top 2 re-ranked candidates:", topCandidates);
-
-        // Step 6: Convert MBIDs -> Spotify Tracks
-        const spotifyTracks = [];
-        for (const c of topCandidates) {
-          const spTrack = await mbidToSpotifyTrack(token.access_token, c.mbid);
-          if (spTrack) {
-            spotifyTracks.push({
-              ...spTrack,
-              fusionDiff: c.fusionDiff.toFixed(3),
-            });
-          }
-        }
-
-        setTracks(spotifyTracks);
-      } catch (e) {
-        console.error("Error fetching similar songs:", e);
-      } finally {
-        setLoading(false);
+        validCandidates.push({
+          mbid: c.recording_mbid,
+          fusion: feat.fusion,
+          fusionDiff,
+        });
+      } catch (err) {
+        console.warn("Skipping candidate:", c.recording_mbid, err);
       }
-    };
+    }
+
+    // Step 5: Pick closest 2
+    const topCandidates = validCandidates
+      .sort((a, b) => a.fusionDiff - b.fusionDiff)
+      .slice(0, 2);
+
+    console.log("🎯 Top 2 re-ranked candidates:", topCandidates);
+
+    // Step 6: Convert MBIDs -> Spotify Tracks
+    const spotifyTracks = [];
+    for (const c of topCandidates) {
+      const spTrack = await mbidToSpotifyTrack(token.access_token, c.mbid);
+      if (spTrack) {
+        spotifyTracks.push({
+          ...spTrack,
+          fusionDiff: c.fusionDiff.toFixed(3),
+        });
+      }
+    }
+
+    setTracks(spotifyTracks);
+  } catch (e) {
+    console.error("Error fetching similar songs:", e);
+  } finally {
+    setLoading(false);
+  }
+};
+
 
 
 
