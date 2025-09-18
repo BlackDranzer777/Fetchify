@@ -129,100 +129,106 @@ export default function App() {
     return () => clearInterval(interval);
   }, [token]);
 
+
+
+
+
+
+
+
   // Find Similar Songs
-  const handleFindSimilar = async () => {
-  if (!currentTrack) return;
-  setLoading(true);
-  try {
-    // Step 1: Get ISRC
-    const isrc =
-      currentTrack.external_ids?.isrc ||
-      (await getTrackById(token.access_token, currentTrack.id)).external_ids.isrc;
+    const handleFindSimilar = async () => {
+      if (!currentTrack) return;
+      setLoading(true);
+      try {
+        // Step 1: Get ISRC
+        const isrc =
+          currentTrack.external_ids?.isrc ||
+          (await getTrackById(token.access_token, currentTrack.id)).external_ids.isrc;
 
-    // Step 2: ISRC -> MBID
-    const mbid = await getMBIDFromISRC(isrc);
-    if (!mbid) {
-      console.warn("No MBID found for ISRC:", isrc);
-      return;
-    }
+        // Step 2: ISRC -> MBID
+        const mbid = await getMBIDFromISRC(isrc);
+        if (!mbid) {
+          console.warn("No MBID found for ISRC:", isrc);
+          return;
+        }
 
-    // Step 3: Get AB features for current track
-    const currentHigh = await getABFeatures(mbid);
-    const currentLow = await getABLowLevel(mbid);
+        // Step 3: Extract features for current song
+        const currentFeat = await extractFeatures(mbid);
+        const currentFusion = currentFeat.fusion;
 
-    const currentFeat = {
-      tempo: currentLow.rhythm?.bpm || 120,
-      dance: currentHigh.highlevel?.danceability?.value === "danceable" ? currentHigh.highlevel?.danceability?.probability : 0,
-      energy: currentHigh.highlevel?.energy?.value === "energetic" ? currentHigh.highlevel?.energy?.probability : 0,
-      valence: currentHigh.highlevel?.mood_happy?.value === "happy" ? currentHigh.highlevel?.mood_happy?.probability : 0,
+        // Step 4: Get AB Similarity candidates
+        const sim = await getSimilarMBIDs(mbid, 50);
+        const candidates = sim?.[mbid]?.[0] || [];
+
+        const validCandidates = [];
+
+        for (const c of candidates) {
+          if (!c.recording_mbid) continue;
+
+          try {
+            const feat = await extractFeatures(c.recording_mbid);
+
+            // Tolerance checks
+            const withinTolerance =
+              Math.abs(feat.dance - currentFeat.dance) <= 0.2 &&
+              Math.abs(feat.energy - currentFeat.energy) <= 0.2 &&
+              Math.abs(feat.valence - currentFeat.valence) <= 0.2 &&
+              Math.abs(feat.flux - currentFeat.flux) <= 0.2 &&
+              Math.abs(feat.tempo - currentFeat.tempo) <= 30 &&
+              feat.hasLyrics === currentFeat.hasLyrics;
+
+            if (!withinTolerance) continue;
+
+            const fusionDiff = Math.abs(feat.fusion - currentFusion);
+
+            validCandidates.push({
+              mbid: c.recording_mbid,
+              fusion: feat.fusion,
+              fusionDiff,
+            });
+          } catch (err) {
+            console.warn("Skipping candidate:", c.recording_mbid, err);
+          }
+        }
+
+        // Step 5: Pick closest 2
+        const topCandidates = validCandidates
+          .sort((a, b) => a.fusionDiff - b.fusionDiff)
+          .slice(0, 2);
+
+        console.log("Top 2 re-ranked candidates:", topCandidates);
+
+        // Step 6: Convert MBIDs -> Spotify Tracks
+        const spotifyTracks = [];
+        for (const c of topCandidates) {
+          const spTrack = await mbidToSpotifyTrack(token.access_token, c.mbid);
+          if (spTrack) {
+            spotifyTracks.push({
+              ...spTrack,
+              fusionDiff: c.fusionDiff.toFixed(3),
+            });
+          }
+        }
+
+        setTracks(spotifyTracks);
+      } catch (e) {
+        console.error("Error fetching similar songs:", e);
+      } finally {
+        setLoading(false);
+      }
     };
 
-    // Step 4: Get AB Similarity candidates
-    const sim = await getSimilarMBIDs(mbid, 30); // get candidates
-    const candidates = sim?.[mbid]?.[0] || [];
-    console.log("Raw similarity candidates:", candidates);
 
-    // Step 5: For each candidate, fetch features & compute similarity score
-    const enriched = [];
-    for (const c of candidates) {
-      if (!c.recording_mbid) continue;
 
-      try {
-        const high = await getABFeatures(c.recording_mbid);
-        const low = await getABLowLevel(c.recording_mbid);
 
-        const feat = {
-          tempo: low.rhythm?.bpm || 120,
-          dance: high.highlevel?.danceability?.value === "danceable" ? high.highlevel?.danceability?.probability : 0,
-          energy: high.highlevel?.energy?.value === "energetic" ? high.highlevel?.energy?.probability : 0,
-          valence: high.highlevel?.mood_happy?.value === "happy" ? high.highlevel?.mood_happy?.probability : 0,
-        };
 
-        // simple distance function (closer = better)
-        const tempoDiff = Math.abs(feat.tempo - currentFeat.tempo) / 200; // normalize
-        const danceDiff = Math.abs(feat.dance - currentFeat.dance);
-        const energyDiff = Math.abs(feat.energy - currentFeat.energy);
-        const valenceDiff = Math.abs(feat.valence - currentFeat.valence);
 
-        const similarityScore =
-          1 - (0.4 * tempoDiff + 0.2 * danceDiff + 0.2 * energyDiff + 0.2 * valenceDiff);
 
-        enriched.push({
-          mbid: c.recording_mbid,
-          distance: c.distance,
-          similarityScore,
-        });
-      } catch (err) {
-        console.warn("Skipping candidate:", c.recording_mbid, err);
-      }
-    }
 
-    // Step 6: Sort by similarityScore
-    const topCandidates = enriched
-      .sort((a, b) => b.similarityScore - a.similarityScore)
-      .slice(0, 10);
 
-    console.log("Re-ranked candidates:", topCandidates);
 
-    // Step 7: Convert MBIDs -> Spotify Tracks
-    const spotifyTracks = [];
-    for (const c of topCandidates) {
-      const spTrack = await mbidToSpotifyTrack(token.access_token, c.mbid);
-      if (spTrack) {
-        spotifyTracks.push({
-          ...spTrack,
-          similarityScore: c.similarityScore.toFixed(3),
-        });
-      }
-    }
 
-    setTracks(spotifyTracks);
-  } catch (e) {
-    console.error("Error fetching similar songs:", e);
-  } finally {
-    setLoading(false);
-  }
-};
 
 
   // show login if no token yet
@@ -296,3 +302,13 @@ export default function App() {
     </div>
   );
 }
+
+
+
+
+
+
+
+
+
+
