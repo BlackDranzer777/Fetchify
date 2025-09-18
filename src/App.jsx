@@ -19,11 +19,7 @@ import {
   getABLowLevel,
   extractFeatures
 } from "./api/musicAnalysis";
-
-
 import { fuseFeatures } from "./lib/fuseFeatures";
-
-
 
 export default function App() {
   const [token, setToken] = useState(null);
@@ -85,7 +81,7 @@ export default function App() {
               const abLow = await getABLowLevel(mbid);
               const fused = fuseFeatures(abHigh, abLow);
 
-              // ✅ Log EVERYTHING
+              // Log EVERYTHING
               console.log("=== HIGH LEVEL FEATURES ===");
               console.log("Danceability:", abHigh?.highlevel?.danceability);
               console.log("Energy:", abHigh?.highlevel?.energy);
@@ -102,7 +98,6 @@ export default function App() {
               console.log("Spectral Flux:", abLow?.lowlevel?.spectral_flux?.mean);
               console.log("MFCC (first 5):", abLow?.lowlevel?.mfcc?.mean?.slice(0, 5));
 
-
               // Console: everything
               console.log("=== FUSED FEATURES ===");
               console.log("tempo :", fused.tempo);
@@ -110,8 +105,7 @@ export default function App() {
               console.log("energy :", fused.energy, fused.debug);
               console.log("valence :", fused.valence, fused.debug);
 
-
-              // ✅ Store some representative ones for UI
+              // Store some representative ones for UI
               // Feed RadioUI
               setFeatures({
                 danceability: fused.danceability,
@@ -130,78 +124,136 @@ export default function App() {
     return () => clearInterval(interval);
   }, [token]);
 
+  // Helper function for similarity calculation
+  const calculateSimilarityScore = (feat1, feat2) => {
+    const weights = {
+      dance: 0.25,
+      energy: 0.25, 
+      valence: 0.20,
+      flux: 0.15,
+      tempo: 0.15
+    };
 
+    let totalSim = 0;
+    let totalWeight = 0;
 
+    // Feature similarities
+    if (feat1.dance !== undefined && feat2.dance !== undefined) {
+      totalSim += (1 - Math.abs(feat1.dance - feat2.dance)) * weights.dance;
+      totalWeight += weights.dance;
+    }
+    
+    if (feat1.energy !== undefined && feat2.energy !== undefined) {
+      totalSim += (1 - Math.abs(feat1.energy - feat2.energy)) * weights.energy;
+      totalWeight += weights.energy;
+    }
+    
+    if (feat1.valence !== undefined && feat2.valence !== undefined) {
+      totalSim += (1 - Math.abs(feat1.valence - feat2.valence)) * weights.valence;
+      totalWeight += weights.valence;
+    }
+    
+    if (feat1.flux !== undefined && feat2.flux !== undefined) {
+      // Normalize flux differences (usually 0-0.5 range)
+      const fluxSim = 1 - Math.min(Math.abs(feat1.flux - feat2.flux) / 0.5, 1);
+      totalSim += fluxSim * weights.flux;
+      totalWeight += weights.flux;
+    }
+    
+    if (feat1.tempo && feat2.tempo) {
+      // Tempo similarity with harmonic relationships (double/half time)
+      const tempos1 = [feat1.tempo, feat1.tempo * 2, feat1.tempo / 2];
+      const tempos2 = [feat2.tempo, feat2.tempo * 2, feat2.tempo / 2];
+      
+      let bestTempoSim = 0;
+      for (const t1 of tempos1) {
+        for (const t2 of tempos2) {
+          const diff = Math.abs(t1 - t2);
+          const sim = Math.max(0, 1 - diff / 80); // 80 BPM tolerance
+          bestTempoSim = Math.max(bestTempoSim, sim);
+        }
+      }
+      
+      totalSim += bestTempoSim * weights.tempo;
+      totalWeight += weights.tempo;
+    }
 
+    return totalWeight > 0 ? totalSim / totalWeight : 0;
+  };
 
-
-
-
-  // Find Similar Songs
+  // IMPROVED Find Similar Songs Function
   const handleFindSimilar = async () => {
-  if (!currentTrack) return;
-  setLoading(true);
+    if (!currentTrack) return;
+    setLoading(true);
 
-  try {
-    // Step 1: Get ISRC
-    const isrc =
-      currentTrack.external_ids?.isrc ||
-      (await getTrackById(token.access_token, currentTrack.id)).external_ids.isrc;
+    try {
+      // Step 1: Get ISRC
+      const isrc =
+        currentTrack.external_ids?.isrc ||
+        (await getTrackById(token.access_token, currentTrack.id)).external_ids.isrc;
 
-    // Step 2: ISRC -> MBID
-    const mbid = await getMBIDFromISRC(isrc);
-    if (!mbid) {
-      console.warn("No MBID found for ISRC:", isrc);
-      return;
-    }
+      console.log("🎵 Finding similar songs for:", currentTrack.name);
 
-    // Step 3: Extract features for current song
-    const currentFeat = await extractFeatures(mbid);
-    if (!currentFeat) {
-      console.warn("No features for current track");
-      return;
-    }
-    const currentFusion = currentFeat.fusion;
+      // Step 2: ISRC -> MBID
+      const mbid = await getMBIDFromISRC(isrc);
+      if (!mbid) {
+        console.warn("❌ No MBID found for ISRC:", isrc);
+        setTracks([]);
+        return;
+      }
 
-    // Step 4: Get AB Similarity (pool = 100)
-    const sim = await getSimilarMBIDs(mbid, 100);
-    const candidates = (sim?.[mbid]?.[0] || []).filter(
-      (c) => c.recording_mbid && c.recording_mbid !== mbid // skip self
-    );
+      // Step 3: Extract features for current song
+      const currentFeat = await extractFeatures(mbid);
+      if (!currentFeat) {
+        console.warn("❌ No features for current track");
+        setTracks([]);
+        return;
+      }
 
-    const validCandidates = [];
+      console.log("🎯 Current track features:", {
+        dance: currentFeat.dance?.toFixed(3),
+        energy: currentFeat.energy?.toFixed(3),
+        valence: currentFeat.valence?.toFixed(3),
+        tempo: currentFeat.tempo,
+        hasLyrics: currentFeat.hasLyrics
+      });
 
-    for (const c of candidates) {
-      if (validCandidates.length >= 2) break; // ✅ stop after 2
+      // Step 4: Get MORE similarity candidates (increase from 100 to 200)
+      const sim = await getSimilarMBIDs(mbid, 200);
+      const candidates = (sim?.[mbid]?.[0] || []).filter(
+        (c) => c.recording_mbid && c.recording_mbid !== mbid
+      );
 
-      try {
-        // respect API rate limit
-        await new Promise((r) => setTimeout(r, 1000));
+      console.log("🔍 Got", candidates.length, "similarity candidates");
 
-        const feat = await extractFeatures(c.recording_mbid);
-        if (!feat) continue;
+      const scoredCandidates = [];
 
-        // tolerance checks
-        const withinTolerance =
-          Math.abs(feat.dance - currentFeat.dance) <= 0.3 &&
-          Math.abs(feat.energy - currentFeat.energy) <= 0.3 &&
-          Math.abs(feat.valence - currentFeat.valence) <= 0.3 &&
-          Math.abs(feat.flux - currentFeat.flux) <= 0.3 &&
-          Math.abs(feat.tempo - currentFeat.tempo) <= 40 &&
-          feat.hasLyrics === currentFeat.hasLyrics &&
-          feat.language === currentFeat.language;
+      // Step 5: Process MORE candidates (increase limit to 20)
+      for (let i = 0; i < Math.min(candidates.length, 20); i++) {
+        const c = candidates[i];
+        
+        try {
+          // Rate limit delay
+          await new Promise(r => setTimeout(r, 1000));
 
-        if (!withinTolerance) continue;
+          const feat = await extractFeatures(c.recording_mbid);
+          if (!feat || !feat.title || !feat.artist) continue;
 
-        const fusionDiff = Math.abs(feat.fusion - currentFusion);
+          // Calculate similarity score (0-1, higher = more similar)
+          const similarity = calculateSimilarityScore(currentFeat, feat);
+          
+          // More flexible filtering (only filter out obvious mismatches)
+          const isReasonableMatch = 
+            similarity > 0.3 && // Basic similarity threshold
+            Math.abs(feat.tempo - currentFeat.tempo) <= 60 && // Looser tempo
+            !(currentFeat.hasLyrics && !feat.hasLyrics && similarity < 0.6); // Don't mix vocal/instrumental unless very similar
 
-        // search on Spotify by title + artist
-        if (feat.title && feat.artist) {
+          if (!isReasonableMatch) continue;
+
+          // Try to find on Spotify
           const query = `track:"${feat.title}" artist:"${feat.artist}"`;
           const res = await fetch(
-            `https://api.spotify.com/v1/search?q=${encodeURIComponent(
-              query
-            )}&type=track&limit=1`,
+            `https://api.spotify.com/v1/search?q=${encodeURIComponent(query)}&type=track&limit=1`,
             { headers: { Authorization: `Bearer ${token.access_token}` } }
           );
 
@@ -209,41 +261,95 @@ export default function App() {
             const data = await res.json();
             const spTrack = data.tracks?.items?.[0];
             if (spTrack) {
-              validCandidates.push({
+              scoredCandidates.push({
                 ...spTrack,
-                fusionDiff: fusionDiff.toFixed(3),
+                similarity: similarity.toFixed(3),
+                features: feat
               });
             }
           }
+        } catch (err) {
+          console.warn("⚠️ Skipping candidate:", c.recording_mbid, err.message);
         }
-      } catch (err) {
-        console.warn("Skipping candidate:", c.recording_mbid, err);
       }
+
+      // Step 6: Sort by similarity and return top matches
+      const topMatches = scoredCandidates
+        .sort((a, b) => parseFloat(b.similarity) - parseFloat(a.similarity))
+        .slice(0, 10);
+
+      console.log("🎊 Found", topMatches.length, "similar tracks:");
+      topMatches.forEach(track => {
+        console.log(`  ${track.similarity} - ${track.name} by ${track.artists[0].name}`);
+      });
+
+      setTracks(topMatches);
+
+    } catch (e) {
+      console.error("❌ Error fetching similar songs:", e);
+      setTracks([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // DEBUG FUNCTION - Remove this later
+  const debugCurrentTrack = async () => {
+    if (!currentTrack || !token) {
+      console.log("❌ No current track or token");
+      return;
     }
 
-    setTracks(validCandidates);
-  } catch (e) {
-    console.error("Error fetching similar songs:", e);
-  } finally {
-    setLoading(false);
-  }
-};
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+    console.log("🐛 DEBUGGING CURRENT TRACK 🐛");
+    console.log("Track:", currentTrack.name, "by", currentTrack.artists[0].name);
+    
+    // Get ISRC
+    const isrc = currentTrack.external_ids?.isrc || 
+      (await getTrackById(token.access_token, currentTrack.id)).external_ids.isrc;
+    console.log("ISRC:", isrc);
+    
+    // Get MBID
+    const mbid = await getMBIDFromISRC(isrc);
+    console.log("MBID:", mbid);
+    
+    if (!mbid) {
+      console.log("❌ No MBID found - this explains why recommendations fail!");
+      return;
+    }
+    
+    // Get features
+    const features = await extractFeatures(mbid);
+    console.log("Features:", features);
+    
+    // Get similarity candidates  
+    const sim = await getSimilarMBIDs(mbid, 50);
+    const candidates = sim?.[mbid]?.[0] || [];
+    console.log("Similarity candidates:", candidates.length);
+    
+    // Test a few candidates
+    if (candidates.length > 0) {
+      console.log("Testing first 3 candidates:");
+      for (let i = 0; i < Math.min(3, candidates.length); i++) {
+        const c = candidates[i];
+        try {
+          const feat = await extractFeatures(c.recording_mbid);
+          console.log(`Candidate ${i+1}:`, {
+            mbid: c.recording_mbid,
+            title: feat?.title,
+            artist: feat?.artist,
+            dance: feat?.dance?.toFixed(3),
+            energy: feat?.energy?.toFixed(3),
+            valence: feat?.valence?.toFixed(3)
+          });
+          await new Promise(r => setTimeout(r, 1000)); // Rate limit
+        } catch (err) {
+          console.log(`Candidate ${i+1} failed:`, err.message);
+        }
+      }
+    }
+    
+    return { isrc, mbid, features, candidateCount: candidates.length };
+  };
 
   // show login if no token yet
   if (!token) {
@@ -303,9 +409,25 @@ export default function App() {
           defaultValues={features}
         />
 
-        <button style={{ marginTop: "20px" }} onClick={handleFindSimilar}>
-          Find Similar Songs
-        </button>
+        <div style={{ marginTop: "20px", display: "flex", gap: "10px", justifyContent: "center" }}>
+          <button onClick={handleFindSimilar}>
+            Find Similar Songs
+          </button>
+          
+          {/* DEBUG BUTTON - Remove this later */}
+          <button 
+            onClick={debugCurrentTrack}
+            style={{ 
+              backgroundColor: "#ff6b6b", 
+              color: "white", 
+              border: "none", 
+              padding: "8px 12px", 
+              borderRadius: "4px" 
+            }}
+          >
+            🐛 Debug Track
+          </button>
+        </div>
 
         <TrackList tracks={tracks} />
 
@@ -316,13 +438,3 @@ export default function App() {
     </div>
   );
 }
-
-
-
-
-
-
-
-
-
-
