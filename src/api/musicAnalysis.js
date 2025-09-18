@@ -81,23 +81,21 @@ export async function getABLowLevel(mbid) {
  */
 // src/api/musicAnalysis.js
 
+// In musicAnalysis.js - Replace the extractFeatures function
 export async function extractFeatures(mbid) {
   const url = `https://acousticbrainz.org/api/v1/${mbid}/high-level?map_classes=true&fmt=json`;
   const res = await fetch(url);
 
   if (res.status === 429) {
-    // Respect rate limiting
     const resetIn = res.headers.get("X-RateLimit-Reset-In") || 5;
     console.warn(`Rate limited. Retrying in ${resetIn}s...`);
     await new Promise(r => setTimeout(r, resetIn * 1000));
-    return extractFeatures(mbid); // retry once
+    return extractFeatures(mbid);
   }
 
   if (!res.ok) throw new Error(`AB high-level fetch failed for ${mbid}`);
-
   const high = await res.json();
 
-  // Fetch low-level too
   const lowRes = await fetch(`https://acousticbrainz.org/api/v1/${mbid}/low-level?fmt=json`);
   if (lowRes.status === 429) {
     const resetIn = lowRes.headers.get("X-RateLimit-Reset-In") || 5;
@@ -108,20 +106,18 @@ export async function extractFeatures(mbid) {
   if (!lowRes.ok) throw new Error(`AB low-level fetch failed for ${mbid}`);
   const low = await lowRes.json();
 
-  // Safely extract values
-  const dance = high.highlevel?.danceability?.probability ?? 0;
-  const energy = high.highlevel?.energy?.probability ?? 0;
-  const valence = high.highlevel?.mood_happy?.probability ?? 0;
-  const flux = low.lowlevel?.spectral_flux?.mean ?? 0;
-  const tempo = low.rhythm?.bpm ?? 120;
+  // ✅ FIX: Convert strings to numbers with parseFloat()
+  const dance = parseFloat(high.highlevel?.danceability?.probability ?? 0);
+  const energy = parseFloat(high.highlevel?.energy?.probability ?? 0);
+  const valence = parseFloat(high.highlevel?.mood_happy?.probability ?? 0);
+  const flux = parseFloat(low.lowlevel?.spectral_flux?.mean ?? 0);
+  const tempo = parseFloat(low.rhythm?.bpm ?? 120);
   const hasLyrics = !!high.highlevel?.voice_instrumental?.value &&
     high.highlevel?.voice_instrumental?.value === "voice";
 
-  // Metadata (title + artist)
   const title = low.metadata?.tags?.title?.[0] || null;
   const artist = low.metadata?.tags?.artist?.[0] || null;
 
-  // Fusion score (example: average of main factors)
   const fusion = (dance + energy + valence + flux) / 4;
 
   return { dance, energy, valence, flux, tempo, hasLyrics, title, artist, fusion };
