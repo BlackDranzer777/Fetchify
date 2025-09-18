@@ -115,7 +115,7 @@ export default function App() {
                 energy: fused.energy,
                 valence: fused.valence,
                 tempo: Math.round(fused.tempo || 120),
-                currentGenre: currentFeat?.genre?.primary || currentFeat?.genre || 'pop'  // Pass current genre to RadioUI
+                currentGenre: currentFeat?.genre || 'pop'  // Pass current genre to RadioUI (now just a string)
               });
             }
           }
@@ -198,86 +198,42 @@ export default function App() {
     return totalWeight > 0 ? totalSim / totalWeight : 0;
   };
 
-  // Helper function for genre similarity using probability distributions
+  // Helper function for genre similarity - simplified for safety
   const calculateGenreSimilarity = (genre1, genre2) => {
-    // If we have full probability distributions, use cosine similarity
-    if (genre1.distribution && genre2.distribution && 
-        Object.keys(genre1.distribution).length > 0 && 
-        Object.keys(genre2.distribution).length > 0) {
-      
-      return calculateGenreCosineSimilarity(genre1.distribution, genre2.distribution);
-    }
-    
-    // Fallback to simple genre matching
-    const g1 = genre1.primary || genre1;
-    const g2 = genre2.primary || genre2;
-    
-    if (g1 === g2) return 1.0; // Perfect match
-    
-    // Define genre relationships
-    const genreGroups = {
-      electronic: ['electronic', 'dance'],
-      rock: ['rock', 'indie'],
-      urban: ['hip-hop'],
-      mellow: ['jazz', 'pop']
-    };
-    
-    // Find which group each genre belongs to
-    let group1 = null, group2 = null;
-    for (const [groupName, genres] of Object.entries(genreGroups)) {
-      if (genres.includes(g1)) group1 = groupName;
-      if (genres.includes(g2)) group2 = groupName;
-    }
-    
-    // Same group = moderate similarity
-    if (group1 && group1 === group2) return 0.7;
-    
-    // Different groups = low similarity
-    return 0.3;
-  };
-
-  // Calculate cosine similarity between two genre probability distributions
-  const calculateGenreCosineSimilarity = (dist1, dist2) => {
     try {
-      // Ensure both distributions are objects
-      if (!dist1 || !dist2 || typeof dist1 !== 'object' || typeof dist2 !== 'object') {
-        return 0;
-      }
-
-      // Get all unique genres
-      const allGenres = new Set([...Object.keys(dist1), ...Object.keys(dist2)]);
+      // Handle both string and object formats safely
+      const g1 = typeof genre1 === 'string' ? genre1 : genre1?.primary || 'pop';
+      const g2 = typeof genre2 === 'string' ? genre2 : genre2?.primary || 'pop';
       
-      if (allGenres.size === 0) return 0;
+      if (g1 === g2) return 1.0; // Perfect match
       
-      let dotProduct = 0;
-      let norm1 = 0;
-      let norm2 = 0;
+      // Define genre relationships
+      const genreGroups = {
+        electronic: ['electronic', 'dance'],
+        rock: ['rock', 'indie'],
+        urban: ['hip-hop'],
+        mellow: ['jazz', 'pop']
+      };
       
-      for (const genre of allGenres) {
-        const prob1 = parseFloat(dist1[genre] || 0);
-        const prob2 = parseFloat(dist2[genre] || 0);
-        
-        // Skip if either probability is NaN
-        if (isNaN(prob1) || isNaN(prob2)) continue;
-        
-        dotProduct += prob1 * prob2;
-        norm1 += prob1 * prob1;
-        norm2 += prob2 * prob2;
+      // Find which group each genre belongs to
+      let group1 = null, group2 = null;
+      for (const [groupName, genres] of Object.entries(genreGroups)) {
+        if (genres.includes(g1)) group1 = groupName;
+        if (genres.includes(g2)) group2 = groupName;
       }
       
-      // Avoid division by zero
-      if (norm1 === 0 || norm2 === 0) return 0;
+      // Same group = moderate similarity
+      if (group1 && group1 === group2) return 0.7;
       
-      const similarity = dotProduct / (Math.sqrt(norm1) * Math.sqrt(norm2));
-      
-      // Ensure result is a valid number
-      return isNaN(similarity) ? 0 : Math.max(0, Math.min(1, similarity));
-      
-    } catch (err) {
-      console.warn("Error in cosine similarity calculation:", err);
-      return 0;
+      // Different groups = low similarity
+      return 0.3;
+    } catch (error) {
+      console.warn("Genre similarity error:", error);
+      return 0.5; // Neutral similarity if error
     }
   };
+
+
 
   // IMPROVED Find Similar Songs Function
   const handleFindSimilar = async () => {
@@ -316,7 +272,7 @@ export default function App() {
         energy: currentFeat.energy?.toFixed(3),
         valence: currentFeat.valence?.toFixed(3),
         tempo: currentFeat.tempo,
-        genre: currentFeat.genre?.primary || currentFeat.genre,  // Show primary genre
+        genre: currentFeat.genre,  // Show genre (now just a string)
         hasLyrics: currentFeat.hasLyrics
       });
 
