@@ -81,7 +81,7 @@ export default function App() {
               const abLow = await getABLowLevel(mbid);
               const fused = fuseFeatures(abHigh, abLow);
               
-              // ✅ Also get full features for genre
+              // Also get full features for genre
               const currentFeat = await extractFeatures(mbid);
 
               // Log EVERYTHING
@@ -115,7 +115,7 @@ export default function App() {
                 energy: fused.energy,
                 valence: fused.valence,
                 tempo: Math.round(fused.tempo || 120),
-                currentGenre: currentFeat?.genre || 'pop'  // ✅ Pass current genre to RadioUI
+                currentGenre: currentFeat?.genre || 'pop'  // Pass current genre to RadioUI
               });
             }
           }
@@ -136,7 +136,7 @@ export default function App() {
       valence: 0.15,
       flux: 0.10,
       tempo: 0.10,
-      genre: 0.25  // ✅ Genre gets significant weight
+      genre: 0.25  // Genre gets significant weight
     };
 
     let totalSim = 0;
@@ -183,7 +183,7 @@ export default function App() {
       totalWeight += weights.tempo;
     }
 
-    // ✅ Genre similarity
+    // Genre similarity
     if (feat1.genre && feat2.genre) {
       const genreSim = calculateGenreSimilarity(feat1.genre, feat2.genre);
       totalSim += genreSim * weights.genre;
@@ -230,12 +230,12 @@ export default function App() {
         currentTrack.external_ids?.isrc ||
         (await getTrackById(token.access_token, currentTrack.id)).external_ids.isrc;
 
-      console.log("🎵 Finding similar songs for:", currentTrack.name);
+      console.log("Finding similar songs for:", currentTrack.name);
 
       // Step 2: ISRC -> MBID
       const mbid = await getMBIDFromISRC(isrc);
       if (!mbid) {
-        console.warn("❌ No MBID found for ISRC:", isrc);
+        console.warn("No MBID found for ISRC:", isrc);
         setTracks([]);
         return;
       }
@@ -243,17 +243,17 @@ export default function App() {
       // Step 3: Extract features for current song
       const currentFeat = await extractFeatures(mbid);
       if (!currentFeat) {
-        console.warn("❌ No features for current track");
+        console.warn("No features for current track");
         setTracks([]);
         return;
       }
 
-      console.log("🎯 Current track features:", {
+      console.log("Current track features:", {
         dance: currentFeat.dance?.toFixed(3),
         energy: currentFeat.energy?.toFixed(3),
         valence: currentFeat.valence?.toFixed(3),
         tempo: currentFeat.tempo,
-        genre: currentFeat.genre,  // ✅ Show genre
+        genre: currentFeat.genre,  // Show genre
         hasLyrics: currentFeat.hasLyrics
       });
 
@@ -263,7 +263,7 @@ export default function App() {
         (c) => c.recording_mbid && c.recording_mbid !== mbid
       );
 
-      console.log("🔍 Got", candidates.length, "similarity candidates");
+      console.log("Got", candidates.length, "similarity candidates");
 
       const scoredCandidates = [];
 
@@ -308,7 +308,7 @@ export default function App() {
             }
           }
         } catch (err) {
-          console.warn("⚠️ Skipping candidate:", c.recording_mbid, err.message);
+          console.warn("Skipping candidate:", c.recording_mbid, err.message);
         }
       }
 
@@ -317,7 +317,7 @@ export default function App() {
         .sort((a, b) => parseFloat(b.similarity) - parseFloat(a.similarity))
         .slice(0, 10);
 
-      console.log("🎊 Found", topMatches.length, "similar tracks:");
+      console.log("Found", topMatches.length, "similar tracks:");
       topMatches.forEach(track => {
         console.log(`  ${track.similarity} - ${track.name} by ${track.artists[0].name}`);
       });
@@ -325,7 +325,7 @@ export default function App() {
       setTracks(topMatches);
 
     } catch (e) {
-      console.error("❌ Error fetching similar songs:", e);
+      console.error("Error fetching similar songs:", e);
       setTracks([]);
     } finally {
       setLoading(false);
@@ -335,11 +335,11 @@ export default function App() {
   // DEBUG FUNCTION - Remove this later
   const debugCurrentTrack = async () => {
     if (!currentTrack || !token) {
-      console.log("❌ No current track or token");
+      console.log("No current track or token");
       return;
     }
 
-    console.log("🐛 DEBUGGING CURRENT TRACK 🐛");
+    console.log("DEBUGGING CURRENT TRACK");
     console.log("Track:", currentTrack.name, "by", currentTrack.artists[0].name);
     
     // Get ISRC
@@ -352,7 +352,7 @@ export default function App() {
     console.log("MBID:", mbid);
     
     if (!mbid) {
-      console.log("❌ No MBID found - this explains why recommendations fail!");
+      console.log("No MBID found - this explains why recommendations fail!");
       return;
     }
     
@@ -394,10 +394,20 @@ export default function App() {
   if (!token) {
     return (
       <div style={{ display: "grid", placeItems: "center", height: "100vh" }}>
-        <div>
+        <div style={{ textAlign: 'center', padding: '20px' }}>
           <h1>Fetchify</h1>
           <p>Retro-radio recommendations powered by Spotify.</p>
-          <button onClick={loginWithPKCE}>Login with Spotify</button>
+          <button onClick={loginWithPKCE} style={{
+            padding: '12px 24px',
+            fontSize: '16px',
+            backgroundColor: '#1DB954',
+            color: 'white',
+            border: 'none',
+            borderRadius: '24px',
+            cursor: 'pointer'
+          }}>
+            Login with Spotify
+          </button>
         </div>
       </div>
     );
@@ -407,72 +417,167 @@ export default function App() {
   if (waiting) {
     return (
       <div style={{ display: "grid", placeItems: "center", height: "100vh" }}>
-        <h2>Please play a song on Spotify to begin…</h2>
+        <div style={{ textAlign: 'center', padding: '20px' }}>
+          <h2>Please play a song on Spotify to begin...</h2>
+          <div style={{ marginTop: '20px', fontSize: '14px', opacity: 0.7 }}>
+            Make sure Spotify is playing and try refreshing if needed
+          </div>
+        </div>
       </div>
     );
   }
 
   // main UI
   return (
-    <div
-      className="appWrapper"
-      style={{
-        height: "100vh",
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
-      }}
-    >
-      <div style={{ maxWidth: 980, width: "100%", padding: "0 16px" }}>
-        <h2 style={{ textAlign: "center" }}>
-          {user ? `Hello, ${user.display_name}!` : "Loading user..."}
-        </h2>
+    <div style={{
+      minHeight: "100vh",
+      backgroundColor: "#f5f5f5",
+      padding: "20px 0"
+    }}>
+      <div style={{ 
+        maxWidth: 1000, 
+        width: "100%", 
+        margin: "0 auto",
+        padding: "0 16px"
+      }}>
+        {/* Header */}
+        <div style={{ 
+          textAlign: "center", 
+          marginBottom: "30px" 
+        }}>
+          <h1 style={{ 
+            fontSize: '2.5em', 
+            fontWeight: 800, 
+            margin: '0 0 10px 0',
+            color: '#111'
+          }}>
+            Fetchify
+          </h1>
+          <p style={{ 
+            fontSize: '16px', 
+            color: '#666', 
+            margin: 0 
+          }}>
+            {user ? `Hello, ${user.display_name}!` : "Loading user..."}
+          </p>
+        </div>
 
+        {/* Current Track Display */}
         {currentTrack && (
-          <div style={{ textAlign: "center", marginBottom: "20px" }}>
+          <div style={{ 
+            textAlign: "center", 
+            marginBottom: "30px",
+            padding: "20px",
+            backgroundColor: "white",
+            borderRadius: "16px",
+            border: "3px solid #111",
+            boxShadow: "6px 8px 0 #111"
+          }}>
             <img
               src={currentTrack.album.images[0]?.url}
               alt={currentTrack.name}
-              style={{ width: "200px", borderRadius: "8px" }}
+              style={{ 
+                width: "160px", 
+                height: "160px",
+                borderRadius: "12px",
+                border: "3px solid #111",
+                marginBottom: "16px"
+              }}
             />
-            <h3>{currentTrack.name}</h3>
-            <p>{currentTrack.artists.map((a) => a.name).join(", ")}</p>
+            <h2 style={{ 
+              fontWeight: 800, 
+              margin: "0 0 8px 0",
+              fontSize: "20px"
+            }}>
+              {currentTrack.name}
+            </h2>
+            <p style={{ 
+              color: "#666", 
+              fontSize: "16px",
+              margin: 0
+            }}>
+              {currentTrack.artists.map((a) => a.name).join(", ")}
+            </p>
           </div>
         )}
 
-        <RadioUI
-          onTune={() => {}}
-          onSave={() => {}}
-          loading={loading}
-          defaultValues={features}
-        />
+        {/* Radio UI */}
+        <div style={{ marginBottom: "30px" }}>
+          <RadioUI
+            onTune={() => {}}
+            onSave={() => {}}
+            loading={loading}
+            defaultValues={features}
+          />
+        </div>
 
-        <div style={{ marginTop: "20px", display: "flex", gap: "10px", justifyContent: "center" }}>
-          <button onClick={handleFindSimilar}>
-            Find Similar Songs
+        {/* Action Buttons */}
+        <div style={{ 
+          marginBottom: "30px", 
+          display: "flex", 
+          gap: "12px", 
+          justifyContent: "center",
+          flexWrap: "wrap"
+        }}>
+          <button 
+            onClick={handleFindSimilar}
+            disabled={loading}
+            style={{
+              padding: "12px 24px",
+              fontSize: "16px",
+              fontWeight: 700,
+              backgroundColor: loading ? "#ccc" : "#F26B1D",
+              color: "white",
+              border: "3px solid #111",
+              borderRadius: "12px",
+              cursor: loading ? "not-allowed" : "pointer",
+              boxShadow: "4px 5px 0 #111"
+            }}
+          >
+            {loading ? "Finding..." : "Find Similar Songs"}
           </button>
           
           {/* DEBUG BUTTON - Remove this later */}
           <button 
             onClick={debugCurrentTrack}
             style={{ 
+              padding: "8px 16px",
+              fontSize: "14px",
               backgroundColor: "#ff6b6b", 
               color: "white", 
-              border: "none", 
-              padding: "8px 12px", 
-              borderRadius: "4px" 
+              border: "3px solid #111", 
+              borderRadius: "8px",
+              cursor: "pointer",
+              boxShadow: "3px 4px 0 #111"
             }}
           >
-            🐛 Debug Track
+            Debug Track
           </button>
         </div>
 
+        {/* Track List */}
         <TrackList tracks={tracks} />
 
-        <button style={{ marginTop: "20px" }} onClick={logout}>
-          Logout
-        </button>
+        {/* Logout */}
+        <div style={{ 
+          textAlign: "center", 
+          marginTop: "40px" 
+        }}>
+          <button 
+            onClick={logout}
+            style={{
+              padding: "10px 20px",
+              fontSize: "14px",
+              backgroundColor: "transparent",
+              color: "#666",
+              border: "2px solid #ccc",
+              borderRadius: "8px",
+              cursor: "pointer"
+            }}
+          >
+            Logout
+          </button>
+        </div>
       </div>
     </div>
   );
