@@ -84,6 +84,8 @@ export async function getABLowLevel(mbid) {
 // In musicAnalysis.js - Replace the extractFeatures function
 // Replace your extractFeatures function in musicAnalysis.js with this improved version
 
+// Replace your extractFeatures function in musicAnalysis.js with this improved version
+
 export async function extractFeatures(mbid) {
   const url = `https://acousticbrainz.org/api/v1/${mbid}/high-level?map_classes=true&fmt=json`;
   const res = await fetch(url);
@@ -121,18 +123,24 @@ export async function extractFeatures(mbid) {
   const title = low.metadata?.tags?.title?.[0] || null;
   const artist = low.metadata?.tags?.artist?.[0] || null;
 
+  // ✅ GENRE DETECTION - Extract primary genre
+  const genre = detectGenre(high);
+
   const fusion = (dance + energy + valence + flux) / 4;
 
-  // 🐛 Debug logging for vocals detection
-  console.log(`🎤 Vocal detection for "${title}" by "${artist}":`, {
+  // 🐛 Debug logging for vocals and genre detection
+  console.log(`🎤🎸 Analysis for "${title}" by "${artist}":`, {
     hasLyrics,
+    genre,
     voiceInstrumental: high.highlevel?.voice_instrumental,
-    vocal: high.highlevel?.vocal,
-    instrumental: high.highlevel?.instrumental,
-    speech: high.highlevel?.speech_music
+    genreClassifiers: {
+      dortmund: high.highlevel?.genre_dortmund?.value,
+      electronic: high.highlevel?.genre_electronic?.value,
+      rosamerica: high.highlevel?.genre_rosamerica?.value
+    }
   });
 
-  return { dance, energy, valence, flux, tempo, hasLyrics, title, artist, fusion };
+  return { dance, energy, valence, flux, tempo, hasLyrics, genre, title, artist, fusion };
 }
 
 // Helper function to detect vocals using multiple methods
@@ -184,4 +192,97 @@ function detectVocals(high, low) {
 
   // Method 5: Fallback - assume most music has vocals (safer default)
   return true;
+}
+
+// Helper function to detect and normalize genre
+function detectGenre(high) {
+  // Check all available genre classifiers
+  const genreClassifiers = [
+    high.highlevel?.genre_dortmund,
+    high.highlevel?.genre_electronic, 
+    high.highlevel?.genre_rosamerica,
+    high.highlevel?.genre_tzanetakis
+  ];
+
+  let bestGenre = null;
+  let bestConfidence = 0;
+
+  for (const classifier of genreClassifiers) {
+    if (classifier?.value && classifier?.probability) {
+      const confidence = parseFloat(classifier.probability[classifier.value] || 0);
+      if (confidence > bestConfidence && confidence > 0.4) { // At least 40% confidence
+        bestGenre = classifier.value;
+        bestConfidence = confidence;
+      }
+    }
+  }
+
+  // Normalize genre names to match RadioUI genres
+  if (bestGenre) {
+    return normalizeGenre(bestGenre);
+  }
+
+  return 'pop'; // Default fallback
+}
+
+// Map AcousticBrainz genres to RadioUI genres
+function normalizeGenre(acousticBrainzGenre) {
+  const genreMap = {
+    // Electronic/Dance
+    'electronic': 'electronic',
+    'techno': 'electronic', 
+    'house': 'dance',
+    'drum and bass': 'electronic',
+    'ambient': 'electronic',
+    'downtempo': 'electronic',
+    'trance': 'dance',
+    'dubstep': 'electronic',
+
+    // Rock variants
+    'rock': 'rock',
+    'alternative rock': 'rock',
+    'indie rock': 'indie',
+    'punk': 'rock',
+    'metal': 'rock',
+    'hard rock': 'rock',
+    'classic rock': 'rock',
+
+    // Pop variants
+    'pop': 'pop',
+    'indie pop': 'indie',
+    'synthpop': 'pop',
+    'electropop': 'pop',
+
+    // Hip-hop variants
+    'hip-hop': 'hip-hop',
+    'rap': 'hip-hop',
+    'hip hop': 'hip-hop',
+
+    // Jazz variants
+    'jazz': 'jazz',
+    'blues': 'jazz',
+    'soul': 'jazz',
+    'funk': 'jazz',
+
+    // Indie variants
+    'indie': 'indie',
+    'indie folk': 'indie',
+    'alternative': 'indie'
+  };
+
+  const normalized = acousticBrainzGenre.toLowerCase();
+  
+  // Direct match
+  if (genreMap[normalized]) {
+    return genreMap[normalized];
+  }
+
+  // Partial match
+  for (const [abGenre, radioGenre] of Object.entries(genreMap)) {
+    if (normalized.includes(abGenre) || abGenre.includes(normalized)) {
+      return radioGenre;
+    }
+  }
+
+  return 'pop'; // Default fallback
 }

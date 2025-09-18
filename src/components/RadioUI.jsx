@@ -12,12 +12,14 @@ export default function RadioUI({ onTune, onSave, defaultValues }) {
     genres: ['pop'],
   });
 
-  // 🔑 Update state when defaultValues arrive from App.jsx
+  // 🔒 Update state when defaultValues arrive from App.jsx
   useEffect(() => {
     if (defaultValues) {
       setVals((v) => ({
         ...v,
         ...defaultValues, // override danceability, energy, valence, tempo
+        // ✅ Auto-select current track's genre if available
+        genres: defaultValues.currentGenre ? [defaultValues.currentGenre] : v.genres
       }));
     }
   }, [defaultValues]);
@@ -56,6 +58,13 @@ export default function RadioUI({ onTune, onSave, defaultValues }) {
           <span>Tempo</span>
           <strong>{vals.tempo} BPM</strong>
         </div>
+        {/* ✅ Show current track's genre */}
+        {defaultValues?.currentGenre && (
+          <div className={styles.screenRow}>
+            <span>Current Genre</span>
+            <strong style={{ color: '#00ff41' }}>{defaultValues.currentGenre.toUpperCase()}</strong>
+          </div>
+        )}
         <div className={styles.equalizer} aria-hidden="true">
           <span /><span /><span /><span /><span />
         </div>
@@ -104,14 +113,21 @@ export default function RadioUI({ onTune, onSave, defaultValues }) {
       <div className={styles.genres} aria-label="Genre seeds">
         {GENRES.map((g) => {
           const active = vals.genres.includes(g);
+          const isCurrent = defaultValues?.currentGenre === g;
           return (
             <button
               key={g}
               className={active ? styles.genreActive : styles.genre}
               onClick={(e) => { e.preventDefault(); toggleGenre(g); }}
               aria-pressed={active}
+              style={isCurrent ? { 
+                border: '2px solid #00ff41', 
+                boxShadow: '0 0 8px #00ff4150' 
+              } : {}}
+              title={isCurrent ? "Current track's genre" : undefined}
             >
               {g}
+              {isCurrent && ' ★'}
             </button>
           );
         })}

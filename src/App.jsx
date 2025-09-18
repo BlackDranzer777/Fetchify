@@ -80,6 +80,9 @@ export default function App() {
               const abHigh = await getABFeatures(mbid);
               const abLow = await getABLowLevel(mbid);
               const fused = fuseFeatures(abHigh, abLow);
+              
+              // ✅ Also get full features for genre
+              const currentFeat = await extractFeatures(mbid);
 
               // Log EVERYTHING
               console.log("=== HIGH LEVEL FEATURES ===");
@@ -112,6 +115,7 @@ export default function App() {
                 energy: fused.energy,
                 valence: fused.valence,
                 tempo: Math.round(fused.tempo || 120),
+                currentGenre: currentFeat?.genre || 'pop'  // ✅ Pass current genre to RadioUI
               });
             }
           }
@@ -127,11 +131,12 @@ export default function App() {
   // Helper function for similarity calculation
   const calculateSimilarityScore = (feat1, feat2) => {
     const weights = {
-      dance: 0.25,
-      energy: 0.25, 
-      valence: 0.20,
-      flux: 0.15,
-      tempo: 0.15
+      dance: 0.20,
+      energy: 0.20, 
+      valence: 0.15,
+      flux: 0.10,
+      tempo: 0.10,
+      genre: 0.25  // ✅ Genre gets significant weight
     };
 
     let totalSim = 0;
@@ -178,7 +183,40 @@ export default function App() {
       totalWeight += weights.tempo;
     }
 
+    // ✅ Genre similarity
+    if (feat1.genre && feat2.genre) {
+      const genreSim = calculateGenreSimilarity(feat1.genre, feat2.genre);
+      totalSim += genreSim * weights.genre;
+      totalWeight += weights.genre;
+    }
+
     return totalWeight > 0 ? totalSim / totalWeight : 0;
+  };
+
+  // Helper function for genre similarity
+  const calculateGenreSimilarity = (genre1, genre2) => {
+    if (genre1 === genre2) return 1.0; // Perfect match
+    
+    // Define genre relationships
+    const genreGroups = {
+      electronic: ['electronic', 'dance'],
+      rock: ['rock', 'indie'],
+      urban: ['hip-hop'],
+      mellow: ['jazz', 'pop']
+    };
+    
+    // Find which group each genre belongs to
+    let group1 = null, group2 = null;
+    for (const [groupName, genres] of Object.entries(genreGroups)) {
+      if (genres.includes(genre1)) group1 = groupName;
+      if (genres.includes(genre2)) group2 = groupName;
+    }
+    
+    // Same group = moderate similarity
+    if (group1 && group1 === group2) return 0.7;
+    
+    // Different groups = low similarity
+    return 0.3;
   };
 
   // IMPROVED Find Similar Songs Function
@@ -215,6 +253,7 @@ export default function App() {
         energy: currentFeat.energy?.toFixed(3),
         valence: currentFeat.valence?.toFixed(3),
         tempo: currentFeat.tempo,
+        genre: currentFeat.genre,  // ✅ Show genre
         hasLyrics: currentFeat.hasLyrics
       });
 
