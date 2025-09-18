@@ -1,16 +1,20 @@
-// netlify/functions/musicProxy.js
 export async function handler(event) {
   let { path } = event.queryStringParameters;
   if (!path) {
     return { statusCode: 400, body: "Missing path" };
   }
 
-  // Ensure fmt=json is appended
+  // Decode just in case Netlify double-encodes
+  path = decodeURIComponent(path);
+
+  // Ensure fmt=json
   if (!path.includes("fmt=json")) {
     path += path.includes("?") ? "&fmt=json" : "?fmt=json";
   }
 
   const url = `https://musicbrainz.org${path}`;
+  console.log("Proxying to:", url);
+
   try {
     const res = await fetch(url, {
       headers: {
@@ -18,15 +22,17 @@ export async function handler(event) {
       },
     });
 
-    const contentType = res.headers.get("content-type") || "text/plain";
-    const body = await res.text();
+    if (res.status === 503) {
+      return { statusCode: 503, body: "MusicBrainz rate limit hit, try again later" };
+    }
 
+    const body = await res.text();
     return {
       statusCode: res.status,
-      headers: { "Content-Type": contentType },
+      headers: { "Content-Type": res.headers.get("content-type") || "application/json" },
       body,
     };
   } catch (err) {
-    return { statusCode: 500, body: err.toString() };
+    return { statusCode: 500, body: `Proxy error: ${err.toString()}` };
   }
 }
