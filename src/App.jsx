@@ -115,7 +115,7 @@ export default function App() {
                 energy: fused.energy,
                 valence: fused.valence,
                 tempo: Math.round(fused.tempo || 120),
-                currentGenre: currentFeat?.genre || 'pop'  // Pass current genre to RadioUI
+                currentGenre: currentFeat?.genre?.primary || currentFeat?.genre || 'pop'  // Pass current genre to RadioUI
               });
             }
           }
@@ -193,9 +193,21 @@ export default function App() {
     return totalWeight > 0 ? totalSim / totalWeight : 0;
   };
 
-  // Helper function for genre similarity
+  // Helper function for genre similarity using probability distributions
   const calculateGenreSimilarity = (genre1, genre2) => {
-    if (genre1 === genre2) return 1.0; // Perfect match
+    // If we have full probability distributions, use cosine similarity
+    if (genre1.distribution && genre2.distribution && 
+        Object.keys(genre1.distribution).length > 0 && 
+        Object.keys(genre2.distribution).length > 0) {
+      
+      return calculateGenreCosineSimilarity(genre1.distribution, genre2.distribution);
+    }
+    
+    // Fallback to simple genre matching
+    const g1 = genre1.primary || genre1;
+    const g2 = genre2.primary || genre2;
+    
+    if (g1 === g2) return 1.0; // Perfect match
     
     // Define genre relationships
     const genreGroups = {
@@ -208,8 +220,8 @@ export default function App() {
     // Find which group each genre belongs to
     let group1 = null, group2 = null;
     for (const [groupName, genres] of Object.entries(genreGroups)) {
-      if (genres.includes(genre1)) group1 = groupName;
-      if (genres.includes(genre2)) group2 = groupName;
+      if (genres.includes(g1)) group1 = groupName;
+      if (genres.includes(g2)) group2 = groupName;
     }
     
     // Same group = moderate similarity
@@ -217,6 +229,30 @@ export default function App() {
     
     // Different groups = low similarity
     return 0.3;
+  };
+
+  // Calculate cosine similarity between two genre probability distributions
+  const calculateGenreCosineSimilarity = (dist1, dist2) => {
+    // Get all unique genres
+    const allGenres = new Set([...Object.keys(dist1), ...Object.keys(dist2)]);
+    
+    let dotProduct = 0;
+    let norm1 = 0;
+    let norm2 = 0;
+    
+    for (const genre of allGenres) {
+      const prob1 = parseFloat(dist1[genre] || 0);
+      const prob2 = parseFloat(dist2[genre] || 0);
+      
+      dotProduct += prob1 * prob2;
+      norm1 += prob1 * prob1;
+      norm2 += prob2 * prob2;
+    }
+    
+    // Avoid division by zero
+    if (norm1 === 0 || norm2 === 0) return 0;
+    
+    return dotProduct / (Math.sqrt(norm1) * Math.sqrt(norm2));
   };
 
   // IMPROVED Find Similar Songs Function
@@ -253,7 +289,7 @@ export default function App() {
         energy: currentFeat.energy?.toFixed(3),
         valence: currentFeat.valence?.toFixed(3),
         tempo: currentFeat.tempo,
-        genre: currentFeat.genre,  // Show genre
+        genre: currentFeat.genre?.primary || currentFeat.genre,  // Show primary genre
         hasLyrics: currentFeat.hasLyrics
       });
 

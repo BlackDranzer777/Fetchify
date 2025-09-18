@@ -86,6 +86,8 @@ export async function getABLowLevel(mbid) {
 
 // Replace your extractFeatures function in musicAnalysis.js with this improved version
 
+// Replace your extractFeatures function in musicAnalysis.js with this improved version
+
 export async function extractFeatures(mbid) {
   const url = `https://acousticbrainz.org/api/v1/${mbid}/high-level?map_classes=true&fmt=json`;
   const res = await fetch(url);
@@ -206,23 +208,32 @@ function detectGenre(high) {
 
   let bestGenre = null;
   let bestConfidence = 0;
+  let genreDistribution = {};
 
   for (const classifier of genreClassifiers) {
     if (classifier?.value && classifier?.probability) {
-      const confidence = parseFloat(classifier.probability[classifier.value] || 0);
-      if (confidence > bestConfidence && confidence > 0.4) { // At least 40% confidence
+      const confidence = parseFloat(classifier.probability);
+      
+      // Store the full genre distribution if available
+      if (classifier.all) {
+        genreDistribution = { ...genreDistribution, ...classifier.all };
+      }
+      
+      if (confidence > bestConfidence && confidence > 0.4) {
         bestGenre = classifier.value;
         bestConfidence = confidence;
       }
     }
   }
 
-  // Normalize genre names to match RadioUI genres
-  if (bestGenre) {
-    return normalizeGenre(bestGenre);
-  }
-
-  return 'pop'; // Default fallback
+  // Return both the primary genre and the full distribution
+  const primaryGenre = bestGenre ? normalizeGenre(bestGenre) : 'pop';
+  
+  return {
+    primary: primaryGenre,
+    confidence: bestConfidence,
+    distribution: genreDistribution
+  };
 }
 
 // Map AcousticBrainz genres to RadioUI genres
