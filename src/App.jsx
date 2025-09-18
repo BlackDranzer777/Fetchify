@@ -131,54 +131,99 @@ export default function App() {
 
   // Find Similar Songs
   const handleFindSimilar = async () => {
-    if (!currentTrack) return;
-    setLoading(true);
-    try {
-      const isrc =
-        currentTrack.external_ids?.isrc ||
-        (await getTrackById(token.access_token, currentTrack.id)).external_ids.isrc;
+  if (!currentTrack) return;
+  setLoading(true);
+  try {
+    // Step 1: Get ISRC
+    const isrc =
+      currentTrack.external_ids?.isrc ||
+      (await getTrackById(token.access_token, currentTrack.id)).external_ids.isrc;
 
-      const mbid = await getMBIDFromISRC(isrc);
-      if (!mbid) {
-        console.warn("No MBID found for ISRC:", isrc);
-        return;
-      }
-
-      const sim = await getSimilarMBIDs(mbid, 50);
-      const candidates = sim?.[mbid]?.[0] || [];
-      console.log("Similarity candidates:", candidates);
-
-      const sorted = candidates
-        .filter((x) => x.recording_mbid)
-        .sort((a, b) => a.distance - b.distance)
-        .slice(0, 10);
-
-      const spotifyTracks = [];
-      for (const s of sorted) {
-        const spTrack = await mbidToSpotifyTrack(
-          token.access_token,
-          s.recording_mbid
-        );
-        if (spTrack) {
-          spotifyTracks.push({
-            ...spTrack,
-            abDistance: s.distance,
-          });
-        }
-      }
-
-      if (!spotifyTracks.length) {
-        console.warn("No Spotify tracks resolved from AB MBIDs");
-        return;
-      }
-
-      setTracks(spotifyTracks);
-    } catch (e) {
-      console.error("Error fetching similar songs:", e);
-    } finally {
-      setLoading(false);
+    // Step 2: ISRC -> MBID
+    const mbid = await getMBIDFromISRC(isrc);
+    if (!mbid) {
+      console.warn("No MBID found for ISRC:", isrc);
+      return;
     }
-  };
+
+    // Step 3: Get AB features for current track
+    const currentHigh = await getABFeatures(mbid);
+    const currentLow = await getABLowLevel(mbid);
+
+    const currentFeat = {
+      tempo: currentLow.rhythm?.bpm || 120,
+      dance: currentHigh.highlevel?.danceability?.value === "danceable" ? currentHigh.highlevel?.danceability?.probability : 0,
+      energy: currentHigh.highlevel?.energy?.value === "energetic" ? currentHigh.highlevel?.energy?.probability : 0,
+      valence: currentHigh.highlevel?.mood_happy?.value === "happy" ? currentHigh.highlevel?.mood_happy?.probability : 0,
+    };
+
+    // Step 4: Get AB Similarity candidates
+    const sim = await getSimilarMBIDs(mbid, 30); // get candidates
+    const candidates = sim?.[mbid]?.[0] || [];
+    console.log("Raw similarity candidates:", candidates);
+
+    // Step 5: For each candidate, fetch features & compute similarity score
+    const enriched = [];
+    for (const c of candidates) {
+      if (!c.recording_mbid) continue;
+
+      try {
+        const high = await getABFeatures(c.recording_mbid);
+        const low = await getABLowLevel(c.recording_mbid);
+
+        const feat = {
+          tempo: low.rhythm?.bpm || 120,
+          dance: high.highlevel?.danceability?.value === "danceable" ? high.highlevel?.danceability?.probability : 0,
+          energy: high.highlevel?.energy?.value === "energetic" ? high.highlevel?.energy?.probability : 0,
+          valence: high.highlevel?.mood_happy?.value === "happy" ? high.highlevel?.mood_happy?.probability : 0,
+        };
+
+        // simple distance function (closer = better)
+        const tempoDiff = Math.abs(feat.tempo - currentFeat.tempo) / 200; // normalize
+        const danceDiff = Math.abs(feat.dance - currentFeat.dance);
+        const energyDiff = Math.abs(feat.energy - currentFeat.energy);
+        const valenceDiff = Math.abs(feat.valence - currentFeat.valence);
+
+        const similarityScore =
+          1 - (0.4 * tempoDiff + 0.2 * danceDiff + 0.2 * energyDiff + 0.2 * valenceDiff);
+
+        enriched.push({
+          mbid: c.recording_mbid,
+          distance: c.distance,
+          similarityScore,
+        });
+      } catch (err) {
+        console.warn("Skipping candidate:", c.recording_mbid, err);
+      }
+    }
+
+    // Step 6: Sort by similarityScore
+    const topCandidates = enriched
+      .sort((a, b) => b.similarityScore - a.similarityScore)
+      .slice(0, 10);
+
+    console.log("Re-ranked candidates:", topCandidates);
+
+    // Step 7: Convert MBIDs -> Spotify Tracks
+    const spotifyTracks = [];
+    for (const c of topCandidates) {
+      const spTrack = await mbidToSpotifyTrack(token.access_token, c.mbid);
+      if (spTrack) {
+        spotifyTracks.push({
+          ...spTrack,
+          similarityScore: c.similarityScore.toFixed(3),
+        });
+      }
+    }
+
+    setTracks(spotifyTracks);
+  } catch (e) {
+    console.error("Error fetching similar songs:", e);
+  } finally {
+    setLoading(false);
+  }
+};
+
 
   // show login if no token yet
   if (!token) {
