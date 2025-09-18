@@ -175,30 +175,33 @@ export default function App() {
       if (validCandidates.length >= 2) break; // ✅ stop after 2
 
       try {
-        // Respect rate-limit by spacing out calls
-        await new Promise(r => setTimeout(r, 1000));
+        // respect API rate limit
+        await new Promise((r) => setTimeout(r, 1000));
 
         const feat = await extractFeatures(c.recording_mbid);
         if (!feat) continue;
 
-        // Tolerance checks
+        // tolerance checks
         const withinTolerance =
           Math.abs(feat.dance - currentFeat.dance) <= 0.3 &&
           Math.abs(feat.energy - currentFeat.energy) <= 0.3 &&
           Math.abs(feat.valence - currentFeat.valence) <= 0.3 &&
           Math.abs(feat.flux - currentFeat.flux) <= 0.3 &&
           Math.abs(feat.tempo - currentFeat.tempo) <= 40 &&
-          feat.hasLyrics === currentFeat.hasLyrics;
+          feat.hasLyrics === currentFeat.hasLyrics &&
+          feat.language === currentFeat.language;
 
         if (!withinTolerance) continue;
 
         const fusionDiff = Math.abs(feat.fusion - currentFusion);
 
-        // Search directly in Spotify with title + artist
+        // search on Spotify by title + artist
         if (feat.title && feat.artist) {
           const query = `track:"${feat.title}" artist:"${feat.artist}"`;
           const res = await fetch(
-            `https://api.spotify.com/v1/search?q=${encodeURIComponent(query)}&type=track&limit=1`,
+            `https://api.spotify.com/v1/search?q=${encodeURIComponent(
+              query
+            )}&type=track&limit=1`,
             { headers: { Authorization: `Bearer ${token.access_token}` } }
           );
 
@@ -225,6 +228,7 @@ export default function App() {
     setLoading(false);
   }
 };
+
 
 
 
