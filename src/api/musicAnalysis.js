@@ -82,6 +82,8 @@ export async function getABLowLevel(mbid) {
 // src/api/musicAnalysis.js
 
 // In musicAnalysis.js - Replace the extractFeatures function
+// Replace your extractFeatures function in musicAnalysis.js with this improved version
+
 export async function extractFeatures(mbid) {
   const url = `https://acousticbrainz.org/api/v1/${mbid}/high-level?map_classes=true&fmt=json`;
   const res = await fetch(url);
@@ -106,20 +108,80 @@ export async function extractFeatures(mbid) {
   if (!lowRes.ok) throw new Error(`AB low-level fetch failed for ${mbid}`);
   const low = await lowRes.json();
 
-  // ✅ FIX: Convert strings to numbers with parseFloat()
+  // Convert strings to numbers
   const dance = parseFloat(high.highlevel?.danceability?.probability ?? 0);
   const energy = parseFloat(high.highlevel?.energy?.probability ?? 0);
   const valence = parseFloat(high.highlevel?.mood_happy?.probability ?? 0);
   const flux = parseFloat(low.lowlevel?.spectral_flux?.mean ?? 0);
   const tempo = parseFloat(low.rhythm?.bpm ?? 120);
-  const hasLyrics = !!high.highlevel?.voice_instrumental?.value &&
-    high.highlevel?.voice_instrumental?.value === "voice";
+
+  // ✅ IMPROVED hasLyrics Detection - Check multiple indicators
+  const hasLyrics = detectVocals(high, low);
 
   const title = low.metadata?.tags?.title?.[0] || null;
   const artist = low.metadata?.tags?.artist?.[0] || null;
 
   const fusion = (dance + energy + valence + flux) / 4;
 
+  // 🐛 Debug logging for vocals detection
+  console.log(`🎤 Vocal detection for "${title}" by "${artist}":`, {
+    hasLyrics,
+    voiceInstrumental: high.highlevel?.voice_instrumental,
+    vocal: high.highlevel?.vocal,
+    instrumental: high.highlevel?.instrumental,
+    speech: high.highlevel?.speech_music
+  });
+
   return { dance, energy, valence, flux, tempo, hasLyrics, title, artist, fusion };
 }
 
+// Helper function to detect vocals using multiple methods
+function detectVocals(high, low) {
+  // Method 1: voice_instrumental classifier
+  const voiceInstrumental = high.highlevel?.voice_instrumental;
+  if (voiceInstrumental) {
+    if (voiceInstrumental.value === "voice") return true;
+    if (voiceInstrumental.value === "instrumental") return false;
+    
+    // Check probabilities if available
+    if (voiceInstrumental.probability) {
+      const voiceProb = parseFloat(voiceInstrumental.probability.voice || 0);
+      const instrProb = parseFloat(voiceInstrumental.probability.instrumental || 0);
+      if (voiceProb > instrProb && voiceProb > 0.6) return true;
+      if (instrProb > voiceProb && instrProb > 0.7) return false;
+    }
+  }
+
+  // Method 2: vocal vs instrumental classifiers
+  const vocalClass = high.highlevel?.vocal;
+  const instrumentalClass = high.highlevel?.instrumental;
+  
+  if (vocalClass && instrumentalClass) {
+    const vocalProb = parseFloat(vocalClass.probability?.vocal || 0);
+    const instrProb = parseFloat(instrumentalClass.probability?.instrumental || 0);
+    
+    if (vocalProb > 0.6 && vocalProb > instrProb) return true;
+    if (instrProb > 0.7 && instrProb > vocalProb) return false;
+  }
+
+  // Method 3: speech_music classifier (speech usually indicates vocals)
+  const speechMusic = high.highlevel?.speech_music;
+  if (speechMusic?.value === "speech") return true;
+
+  // Method 4: Check for genre indicators
+  const genre = high.highlevel?.genre_dortmund || high.highlevel?.genre_electronic || high.highlevel?.genre_rosamerica;
+  if (genre) {
+    const genreValue = genre.value?.toLowerCase();
+    // Genres that are typically instrumental
+    if (genreValue && ['ambient', 'drone', 'neoclassical', 'soundtrack', 'classical'].some(g => genreValue.includes(g))) {
+      return false;
+    }
+    // Genres that typically have vocals
+    if (genreValue && ['pop', 'rock', 'indie', 'folk', 'country', 'rnb', 'soul', 'hip-hop', 'rap'].some(g => genreValue.includes(g))) {
+      return true;
+    }
+  }
+
+  // Method 5: Fallback - assume most music has vocals (safer default)
+  return true;
+}

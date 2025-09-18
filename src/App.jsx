@@ -246,7 +246,7 @@ export default function App() {
           const isReasonableMatch = 
             similarity > 0.3 && // Basic similarity threshold
             Math.abs(feat.tempo - currentFeat.tempo) <= 60 && // Looser tempo
-            !(currentFeat.hasLyrics && !feat.hasLyrics && similarity < 0.6); // Don't mix vocal/instrumental unless very similar
+            !(currentFeat.hasLyrics && !feat.hasLyrics && similarity < 0.4); // More lenient vocal/instrumental mixing
 
           if (!isReasonableMatch) continue;
 
