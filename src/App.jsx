@@ -131,88 +131,61 @@ export default function App() {
 
 
   const handleFindSimilar = async () => {
-    if (!currentTrack) return;
-    setLoading(true);
-    try {
-      // Step 1: Get ISRC
-      const isrc =
-        currentTrack.external_ids?.isrc ||
-        (await getTrackById(token.access_token, currentTrack.id)).external_ids.isrc;
+  if (!currentTrack) return;
+  setLoading(true);
+  try {
+    // Step 1: Get ISRC
+    const isrc =
+      currentTrack.external_ids?.isrc ||
+      (await getTrackById(token.access_token, currentTrack.id)).external_ids.isrc;
 
-      // Step 2: ISRC -> MBID
-      const mbid = await getMBIDFromISRC(isrc);
-      if (!mbid) {
-        console.warn("No MBID found for ISRC:", isrc);
-        return;
-      }
-
-      // Step 3: Get AB Similarity
-      const sim = await getSimilarMBIDs(mbid, 50); // get more candidates
-      const candidates = sim?.[mbid]?.[0] || [];
-      console.log("Similarity candidates:", candidates);
-
-      // Step 4: Extract MBIDs (remove bad entries, sort by AB distance)
-      const sorted = candidates
-        .filter((x) => x.recording_mbid)
-        .sort((a, b) => a.distance - b.distance)
-        .slice(0, 20); // top 20 AB matches
-
-      // Step 5: Convert MBIDs -> Spotify Tracks
-      const spotifyTracks = [];
-      for (const s of sorted) {
-        const spTrack = await mbidToSpotifyTrack(
-          token.access_token,
-          s.recording_mbid
-        );
-        if (spTrack) {
-          spotifyTracks.push({
-            ...spTrack,
-            abDistance: s.distance, // keep AB distance
-          });
-        }
-      }
-
-      if (!spotifyTracks.length) {
-        console.warn("No Spotify tracks resolved from AB MBIDs");
-        return;
-      }
-
-      // Step 6: Batch fetch popularity
-      const ids = spotifyTracks.map((t) => t.id).join(",");
-      const res = await fetch(
-        `https://api.spotify.com/v1/tracks?ids=${ids}`,
-        {
-          headers: { Authorization: `Bearer ${token.access_token}` },
-        }
-      );
-      const { tracks: popularityTracks } = await res.json();
-
-      // Map popularity into our objects
-      const popMap = {};
-      for (const t of popularityTracks) {
-        popMap[t.id] = t.popularity;
-      }
-
-      const ranked = spotifyTracks.map((t) => ({
-        ...t,
-        popularity: popMap[t.id] || 0,
-        finalScore:
-          0.7 * (1 - t.abDistance) + // AB similarity weight
-          0.3 * ((popMap[t.id] || 0) / 100), // popularity weight
-      }));
-
-      // Step 7: Sort by final score
-      const topRanked = ranked
-        .sort((a, b) => b.finalScore - a.finalScore)
-        .slice(0, 10); // pick top 10
-
-      setTracks(topRanked);
-    } catch (e) {
-      console.error("Error fetching similar songs:", e);
-    } finally {
-      setLoading(false);
+    // Step 2: ISRC -> MBID
+    const mbid = await getMBIDFromISRC(isrc);
+    if (!mbid) {
+      console.warn("No MBID found for ISRC:", isrc);
+      return;
     }
-  };
+
+    // Step 3: Get AB Similarity
+    const sim = await getSimilarMBIDs(mbid, 50); // get more candidates
+    const candidates = sim?.[mbid]?.[0] || [];
+    console.log("Similarity candidates:", candidates);
+
+    // Step 4: Sort by AB distance (closest first)
+    const sorted = candidates
+      .filter((x) => x.recording_mbid)
+      .sort((a, b) => a.distance - b.distance)
+      .slice(0, 10); // top 10 closest matches
+
+    // Step 5: Convert MBIDs -> Spotify Tracks
+    const spotifyTracks = [];
+    for (const s of sorted) {
+      const spTrack = await mbidToSpotifyTrack(
+        token.access_token,
+        s.recording_mbid
+      );
+      if (spTrack) {
+        spotifyTracks.push({
+          ...spTrack,
+          abDistance: s.distance, // keep AB distance
+        });
+      }
+    }
+
+    if (!spotifyTracks.length) {
+      console.warn("No Spotify tracks resolved from AB MBIDs");
+      return;
+    }
+
+    // ✅ Directly set these tracks (skip popularity ranking)
+    setTracks(spotifyTracks);
+  } catch (e) {
+    console.error("Error fetching similar songs:", e);
+  } finally {
+    setLoading(false);
+  }
+};
+
 
 
 
