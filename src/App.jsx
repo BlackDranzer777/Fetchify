@@ -19,6 +19,11 @@ import {
   getABLowLevel
 } from "./api/musicAnalysis";
 
+
+import { fuseFeatures } from "./lib/fuseFeatures";
+
+
+
 export default function App() {
   const [token, setToken] = useState(null);
   const [user, setUser] = useState(null);
@@ -77,6 +82,7 @@ export default function App() {
             if (mbid) {
               const abHigh = await getABFeatures(mbid);
               const abLow = await getABLowLevel(mbid);
+              const fused = fuseFeatures(abHigh, abLow);
 
               // ✅ Log EVERYTHING
               console.log("=== HIGH LEVEL FEATURES ===");
@@ -95,21 +101,22 @@ export default function App() {
               console.log("Spectral Flux:", abLow?.lowlevel?.spectral_flux?.mean);
               console.log("MFCC (first 5):", abLow?.lowlevel?.mfcc?.mean?.slice(0, 5));
 
+
+              // Console: everything
+              console.log("=== FUSED FEATURES ===");
+              console.log("tempo :", fused.tempo);
+              console.log("danceability :", fused.danceability, fused.debug);
+              console.log("energy :", fused.energy, fused.debug);
+              console.log("valence :", fused.valence, fused.debug);
+
+
               // ✅ Store some representative ones for UI
+              // Feed RadioUI
               setFeatures({
-                danceability:
-                  abHigh.highlevel?.danceability?.value === "danceable"
-                    ? abHigh.highlevel?.danceability?.probability || 0.5
-                    : 0,
-                energy:
-                  abHigh.highlevel?.energy?.value === "energetic"
-                    ? abHigh.highlevel?.energy?.probability || 0.5
-                    : 0,
-                valence:
-                  abHigh.highlevel?.mood_happy?.value === "happy"
-                    ? abHigh.highlevel?.mood_happy?.probability || 0.5
-                    : 0,
-                tempo: abLow?.rhythm?.bpm || abHigh.rhythm?.bpm || 120,
+                danceability: fused.danceability,
+                energy: fused.energy,
+                valence: fused.valence,
+                tempo: Math.round(fused.tempo || 120),
               });
             }
           }
