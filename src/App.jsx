@@ -97,9 +97,18 @@ export default function App() {
 
               // ✅ Store some representative ones for UI
               setFeatures({
-                danceability: abHigh.highlevel?.danceability?.probability || 0.5,
-                energy: abHigh.highlevel?.energy?.probability || 0.5,
-                valence: abHigh.highlevel?.mood_happy?.probability || 0.5,
+                danceability:
+                  abHigh.highlevel?.danceability?.value === "danceable"
+                    ? abHigh.highlevel?.danceability?.probability || 0.5
+                    : 0,
+                energy:
+                  abHigh.highlevel?.energy?.value === "energetic"
+                    ? abHigh.highlevel?.energy?.probability || 0.5
+                    : 0,
+                valence:
+                  abHigh.highlevel?.mood_happy?.value === "happy"
+                    ? abHigh.highlevel?.mood_happy?.probability || 0.5
+                    : 0,
                 tempo: abLow?.rhythm?.bpm || abHigh.rhythm?.bpm || 120,
               });
             }
