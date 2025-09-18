@@ -10,8 +10,6 @@ import {
 import {
   getCurrentlyPlaying,
   getTrackById,
-  searchByISRC,
-  searchByTitleArtist,
 } from "./api/spotify";
 import {
   getMBIDFromISRC,
@@ -77,6 +75,17 @@ export default function App() {
             const mbid = await getMBIDFromISRC(isrc);
             if (mbid) {
               const ab = await getABFeatures(mbid);
+
+              // ✅ Debug logs for current track
+              console.log("🎵 Now playing:", now.item.name, "-", now.item.artists.map(a => a.name).join(", "));
+              console.log("Danceability:", ab.highlevel?.danceability?.probability);
+              console.log("Energy:", ab.highlevel?.energy?.probability);
+              console.log("Mood (Happy):", ab.highlevel?.mood_happy?.probability);
+              console.log("Mood (Sad):", ab.highlevel?.mood_sad?.probability);
+              console.log("Mood (Relaxed):", ab.highlevel?.mood_relaxed?.probability);
+              console.log("Tempo:", ab.rhythm?.bpm);
+              console.log("Genres:", ab.highlevel?.genre_dortmund?.value);
+
               setFeatures({
                 danceability: ab.highlevel?.danceability?.probability || 0.5,
                 energy: ab.highlevel?.energy?.probability || 0.5,
@@ -94,100 +103,56 @@ export default function App() {
     return () => clearInterval(interval);
   }, [token]);
 
-  // Fetch similar songs
-  // const handleFindSimilar = async () => {
-  //   if (!currentTrack) return;
-  //   setLoading(true);
-  //   try {
-  //     const isrc =
-  //       currentTrack.external_ids?.isrc ||
-  //       (await getTrackById(token.access_token, currentTrack.id))
-  //         .external_ids.isrc;
-
-  //     const mbid = await getMBIDFromISRC(isrc);
-  //     if (mbid) {
-  //       const sim = await getSimilarMBIDs(mbid, 25);
-  //       const similarMbids = Object.values(sim?.[mbid]?.["0"] || [])
-  //       .map((arr) => {
-  //         console.log("Similarity response:", sim); 
-  //         return arr?.[0]
-  //       })
-  //       .filter((id) => id); // remove null/undefined
-
-
-  //       const spotifyTracks = [];
-  //       for (const id of similarMbids) {
-  //         const spTrack = await mbidToSpotifyTrack(token.access_token, id);
-  //         if (spTrack) spotifyTracks.push(spTrack);
-  //       }
-  //       setTracks(spotifyTracks);
-  //     }
-  //   } catch (e) {
-  //     console.error("Error fetching similar songs:", e);
-  //   } finally {
-  //     setLoading(false);
-  //   }
-  // };
-
-
+  // Find Similar Songs
   const handleFindSimilar = async () => {
-  if (!currentTrack) return;
-  setLoading(true);
-  try {
-    // Step 1: Get ISRC
-    const isrc =
-      currentTrack.external_ids?.isrc ||
-      (await getTrackById(token.access_token, currentTrack.id)).external_ids.isrc;
+    if (!currentTrack) return;
+    setLoading(true);
+    try {
+      const isrc =
+        currentTrack.external_ids?.isrc ||
+        (await getTrackById(token.access_token, currentTrack.id)).external_ids.isrc;
 
-    // Step 2: ISRC -> MBID
-    const mbid = await getMBIDFromISRC(isrc);
-    if (!mbid) {
-      console.warn("No MBID found for ISRC:", isrc);
-      return;
-    }
-
-    // Step 3: Get AB Similarity
-    const sim = await getSimilarMBIDs(mbid, 50); // get more candidates
-    const candidates = sim?.[mbid]?.[0] || [];
-    console.log("Similarity candidates:", candidates);
-
-    // Step 4: Sort by AB distance (closest first)
-    const sorted = candidates
-      .filter((x) => x.recording_mbid)
-      .sort((a, b) => a.distance - b.distance)
-      .slice(0, 10); // top 10 closest matches
-
-    // Step 5: Convert MBIDs -> Spotify Tracks
-    const spotifyTracks = [];
-    for (const s of sorted) {
-      const spTrack = await mbidToSpotifyTrack(
-        token.access_token,
-        s.recording_mbid
-      );
-      if (spTrack) {
-        spotifyTracks.push({
-          ...spTrack,
-          abDistance: s.distance, // keep AB distance
-        });
+      const mbid = await getMBIDFromISRC(isrc);
+      if (!mbid) {
+        console.warn("No MBID found for ISRC:", isrc);
+        return;
       }
+
+      const sim = await getSimilarMBIDs(mbid, 50);
+      const candidates = sim?.[mbid]?.[0] || [];
+      console.log("Similarity candidates:", candidates);
+
+      const sorted = candidates
+        .filter((x) => x.recording_mbid)
+        .sort((a, b) => a.distance - b.distance)
+        .slice(0, 10);
+
+      const spotifyTracks = [];
+      for (const s of sorted) {
+        const spTrack = await mbidToSpotifyTrack(
+          token.access_token,
+          s.recording_mbid
+        );
+        if (spTrack) {
+          spotifyTracks.push({
+            ...spTrack,
+            abDistance: s.distance,
+          });
+        }
+      }
+
+      if (!spotifyTracks.length) {
+        console.warn("No Spotify tracks resolved from AB MBIDs");
+        return;
+      }
+
+      setTracks(spotifyTracks);
+    } catch (e) {
+      console.error("Error fetching similar songs:", e);
+    } finally {
+      setLoading(false);
     }
-
-    if (!spotifyTracks.length) {
-      console.warn("No Spotify tracks resolved from AB MBIDs");
-      return;
-    }
-
-    // ✅ Directly set these tracks (skip popularity ranking)
-    setTracks(spotifyTracks);
-  } catch (e) {
-    console.error("Error fetching similar songs:", e);
-  } finally {
-    setLoading(false);
-  }
-};
-
-
-
+  };
 
   // show login if no token yet
   if (!token) {
@@ -228,7 +193,6 @@ export default function App() {
           {user ? `Hello, ${user.display_name}!` : "Loading user..."}
         </h2>
 
-        {/* Show currently playing */}
         {currentTrack && (
           <div style={{ textAlign: "center", marginBottom: "20px" }}>
             <img
@@ -241,7 +205,6 @@ export default function App() {
           </div>
         )}
 
-        {/* Radio UI with analysis features */}
         <RadioUI
           onTune={() => {}}
           onSave={() => {}}
@@ -249,12 +212,10 @@ export default function App() {
           defaultValues={features}
         />
 
-        {/* Similar songs button */}
         <button style={{ marginTop: "20px" }} onClick={handleFindSimilar}>
           Find Similar Songs
         </button>
 
-        {/* Display TrackList */}
         <TrackList tracks={tracks} />
 
         <button style={{ marginTop: "20px" }} onClick={logout}>
