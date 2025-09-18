@@ -71,7 +71,7 @@
 // Get MBID from ISRC using MusicBrainz
 export async function getMBIDFromISRC(isrc) {
   const res = await fetch(
-    `https://musicbrainz.org/ws/2/recording?query=isrc:${isrc}&fmt=json`,
+    `/.netlify/functions/musicProxy?path=/ws/2/recording?query=isrc:${isrc}&fmt=json`,
     {
       headers: {
         "User-Agent": "Fetchify/1.0 (contact@yourapp.com)", // MusicBrainz requires this
@@ -108,7 +108,7 @@ export async function mbidToSpotifyTrack(token, mbid) {
   if (!mbid) return null; // ✅ safety check
 
   const res = await fetch(
-    `https://musicbrainz.org/ws/2/recording/${mbid}?inc=artist-credits+releases+isrcs&fmt=json`,
+     `/.netlify/functions/musicProxy?path=/ws/2/recording/${mbid}?inc=artist-credits+releases+isrcs&fmt=json`,
     {
       headers: {
         "User-Agent": "Fetchify/1.0 (contact@yourapp.com)",
