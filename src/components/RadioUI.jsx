@@ -12,13 +12,13 @@ export default function RadioUI({ onTune, onSave, defaultValues }) {
     genres: ['pop'],
   });
 
-  // 🔒 Update state when defaultValues arrive from App.jsx
+  // Update state when defaultValues arrive from App.jsx
   useEffect(() => {
     if (defaultValues) {
       setVals((v) => ({
         ...v,
         ...defaultValues, // override danceability, energy, valence, tempo
-        // ✅ Auto-select current track's genre if available
+        // Auto-select current track's genre if available
         genres: defaultValues.currentGenre ? [defaultValues.currentGenre] : v.genres
       }));
     }
@@ -58,11 +58,11 @@ export default function RadioUI({ onTune, onSave, defaultValues }) {
           <span>Tempo</span>
           <strong>{vals.tempo} BPM</strong>
         </div>
-        {/* ✅ Show current track's genre */}
+        {/* Show current track's genre */}
         {defaultValues?.currentGenre && (
           <div className={styles.screenRow}>
             <span>Current Genre</span>
-            <strong style={{ color: '#00ff41' }}>{defaultValues.currentGenre.toUpperCase()}</strong>
+            <strong className={styles.currentGenre}>{defaultValues.currentGenre.toUpperCase()}</strong>
           </div>
         )}
         <div className={styles.equalizer} aria-hidden="true">
