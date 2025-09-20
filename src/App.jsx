@@ -285,9 +285,10 @@ export default function App() {
       console.log("Got", candidates.length, "similarity candidates");
 
       const scoredCandidates = [];
+      const seenTracks = new Set(); // Track seen combinations to prevent duplicates
 
-      // Step 5: Process MORE candidates (increase limit to 20)
-      for (let i = 0; i < Math.min(candidates.length, 20); i++) {
+      // Step 5: Process MORE candidates but limit final results to 5
+      for (let i = 0; i < Math.min(candidates.length, 15); i++) { // Increased search pool
         const c = candidates[i];
         
         try {
@@ -332,6 +333,24 @@ export default function App() {
                   spTrack.external_urls &&
                   spTrack.external_urls.spotify) {
                 
+                // Create unique identifier for duplicate detection
+                const trackKey = `${spTrack.name.toLowerCase().trim()}-${spTrack.artists[0].name.toLowerCase().trim()}`;
+                
+                // Skip if we've already seen this track
+                if (seenTracks.has(trackKey)) {
+                  console.log(`Skipping duplicate: ${spTrack.name} by ${spTrack.artists[0].name}`);
+                  continue;
+                }
+                
+                // Skip if this is the same as current track
+                if (spTrack.id === currentTrack.id) {
+                  console.log(`Skipping current track: ${spTrack.name}`);
+                  continue;
+                }
+                
+                // Add to seen tracks
+                seenTracks.add(trackKey);
+                
                 scoredCandidates.push({
                   id: spTrack.id,
                   name: spTrack.name,
@@ -343,6 +362,9 @@ export default function App() {
                   similarity: similarity.toFixed(3),
                   features: feat
                 });
+                
+                // Stop when we have enough good candidates
+                if (scoredCandidates.length >= 8) break; // Get 8 to choose best 5
               } else {
                 console.warn("Invalid Spotify track structure:", spTrack);
               }
@@ -357,17 +379,17 @@ export default function App() {
         }
       }
 
-      // Step 6: Sort by similarity and return top matches
+      // Step 6: Sort by similarity and return top 5 matches
       const topMatches = scoredCandidates
         .filter(track => track && track.id && track.name && track.artists) // Filter out invalid tracks
         .sort((a, b) => parseFloat(b.similarity) - parseFloat(a.similarity))
-        .slice(0, 10);
+        .slice(0, 5); // Limit to 5 recommendations
 
-      console.log("Found", topMatches.length, "similar tracks:");
+      console.log("Found", topMatches.length, "unique similar tracks:");
       topMatches.forEach((track, index) => {
         try {
           const artistName = track.artists?.[0]?.name || 'Unknown Artist';
-          console.log(`  ${track.similarity} - ${track.name} by ${artistName}`);
+          console.log(`  ${index + 1}. ${track.similarity} - ${track.name} by ${artistName}`);
         } catch (err) {
           console.warn(`Error logging track ${index}:`, err);
         }

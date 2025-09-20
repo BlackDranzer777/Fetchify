@@ -16,7 +16,7 @@ export default function TrackList({ tracks = [] }) {
         color: '#111',
         margin: '0 0 16px 0'
       }}>
-        Similar Tracks
+        Similar Tracks ({tracks.length}/5)
       </h3>
       
       {tracks.map((t, index) => {
