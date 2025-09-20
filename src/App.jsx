@@ -286,97 +286,153 @@ export default function App() {
 
       const scoredCandidates = [];
       const seenTracks = new Set(); // Track seen combinations to prevent duplicates
-
-      // Step 5: Process MORE candidates but limit final results to 5
-      for (let i = 0; i < Math.min(candidates.length, 15); i++) { // Increased search pool
-        const c = candidates[i];
+      let candidateIndex = 0;
+      
+      // Helper function to process a batch of candidates
+      const processCandidateBatch = async (startIndex, batchSize) => {
+        const endIndex = Math.min(startIndex + batchSize, candidates.length);
         
-        try {
-          // Rate limit delay
-          await new Promise(r => setTimeout(r, 1000));
-
-          const feat = await extractFeatures(c.recording_mbid);
-          if (!feat || !feat.title || !feat.artist) continue;
-
-          // Calculate similarity score (0-1, higher = more similar)
-          const similarity = calculateSimilarityScore(currentFeat, feat);
+        for (let i = startIndex; i < endIndex; i++) {
+          const c = candidates[i];
           
-          // More flexible filtering (only filter out obvious mismatches)
-          const isReasonableMatch = 
-            similarity > 0.3 && // Basic similarity threshold
-            Math.abs(feat.tempo - currentFeat.tempo) <= 60 && // Looser tempo
-            !(currentFeat.hasLyrics && !feat.hasLyrics && similarity < 0.4); // More lenient vocal/instrumental mixing
+          try {
+            // Rate limit delay
+            await new Promise(r => setTimeout(r, 1000));
 
-          if (!isReasonableMatch) continue;
+            const feat = await extractFeatures(c.recording_mbid);
+            if (!feat || !feat.title || !feat.artist) continue;
 
-          // Try to find on Spotify
-          const query = `track:"${feat.title}" artist:"${feat.artist}"`;
-          const res = await fetch(
-            `https://api.spotify.com/v1/search?q=${encodeURIComponent(query)}&type=track&limit=1`,
-            { headers: { Authorization: `Bearer ${token.access_token}` } }
-          );
-
-          if (res.ok) {
-            const data = await res.json();
+            // Calculate similarity score (0-1, higher = more similar)
+            const similarity = calculateSimilarityScore(currentFeat, feat);
             
-            // Add comprehensive validation for Spotify track data
-            if (data && data.tracks && data.tracks.items && Array.isArray(data.tracks.items)) {
-              const spTrack = data.tracks.items[0];
+            // More flexible filtering (only filter out obvious mismatches)
+            const isReasonableMatch = 
+              similarity > 0.3 && // Basic similarity threshold
+              Math.abs(feat.tempo - currentFeat.tempo) <= 60 && // Looser tempo
+              !(currentFeat.hasLyrics && !feat.hasLyrics && similarity < 0.4); // More lenient vocal/instrumental mixing
+
+            if (!isReasonableMatch) continue;
+
+            // Try to find on Spotify
+            const query = `track:"${feat.title}" artist:"${feat.artist}"`;
+            const res = await fetch(
+              `https://api.spotify.com/v1/search?q=${encodeURIComponent(query)}&type=track&limit=1`,
+              { headers: { Authorization: `Bearer ${token.access_token}` } }
+            );
+
+            if (res.ok) {
+              const data = await res.json();
               
-              // Validate all required properties
-              if (spTrack && 
-                  typeof spTrack.id === 'string' && 
-                  typeof spTrack.name === 'string' && 
-                  Array.isArray(spTrack.artists) && 
-                  spTrack.artists.length > 0 &&
-                  spTrack.artists[0].name &&
-                  spTrack.external_urls &&
-                  spTrack.external_urls.spotify) {
+              // Add comprehensive validation for Spotify track data
+              if (data && data.tracks && data.tracks.items && Array.isArray(data.tracks.items)) {
+                const spTrack = data.tracks.items[0];
                 
-                // Create unique identifier for duplicate detection
-                const trackKey = `${spTrack.name.toLowerCase().trim()}-${spTrack.artists[0].name.toLowerCase().trim()}`;
-                
-                // Skip if we've already seen this track
-                if (seenTracks.has(trackKey)) {
-                  console.log(`Skipping duplicate: ${spTrack.name} by ${spTrack.artists[0].name}`);
-                  continue;
+                // Validate all required properties
+                if (spTrack && 
+                    typeof spTrack.id === 'string' && 
+                    typeof spTrack.name === 'string' && 
+                    Array.isArray(spTrack.artists) && 
+                    spTrack.artists.length > 0 &&
+                    spTrack.artists[0].name &&
+                    spTrack.external_urls &&
+                    spTrack.external_urls.spotify) {
+                  
+                  // Create unique identifier for duplicate detection
+                  const trackKey = `${spTrack.name.toLowerCase().trim()}-${spTrack.artists[0].name.toLowerCase().trim()}`;
+                  
+                  // Skip if we've already seen this track
+                  if (seenTracks.has(trackKey)) {
+                    console.log(`Skipping duplicate: ${spTrack.name} by ${spTrack.artists[0].name}`);
+                    continue;
+                  }
+                  
+                  // Skip if this is the same as current track
+                  if (spTrack.id === currentTrack.id) {
+                    console.log(`Skipping current track: ${spTrack.name}`);
+                    continue;
+                  }
+                  
+                  // Add to seen tracks
+                  seenTracks.add(trackKey);
+                  
+                  scoredCandidates.push({
+                    id: spTrack.id,
+                    name: spTrack.name,
+                    artists: spTrack.artists,
+                    album: spTrack.album || { images: [] },
+                    external_urls: spTrack.external_urls,
+                    preview_url: spTrack.preview_url || null,
+                    popularity: spTrack.popularity || 0,
+                    similarity: similarity.toFixed(3),
+                    features: feat
+                  });
+                  
+                  console.log(`Added track ${scoredCandidates.length}: ${spTrack.name} by ${spTrack.artists[0].name} (similarity: ${similarity.toFixed(3)})`);
+                  
+                } else {
+                  console.warn("Invalid Spotify track structure:", spTrack);
                 }
-                
-                // Skip if this is the same as current track
-                if (spTrack.id === currentTrack.id) {
-                  console.log(`Skipping current track: ${spTrack.name}`);
-                  continue;
-                }
-                
-                // Add to seen tracks
-                seenTracks.add(trackKey);
-                
-                scoredCandidates.push({
-                  id: spTrack.id,
-                  name: spTrack.name,
-                  artists: spTrack.artists,
-                  album: spTrack.album || { images: [] },
-                  external_urls: spTrack.external_urls,
-                  preview_url: spTrack.preview_url || null,
-                  popularity: spTrack.popularity || 0,
-                  similarity: similarity.toFixed(3),
-                  features: feat
-                });
-                
-                // Stop when we have enough good candidates
-                if (scoredCandidates.length >= 8) break; // Get 8 to choose best 5
               } else {
-                console.warn("Invalid Spotify track structure:", spTrack);
+                console.warn("Invalid Spotify search response:", data);
               }
             } else {
-              console.warn("Invalid Spotify search response:", data);
+              console.warn("Spotify search failed:", res.status, res.statusText);
             }
-          } else {
-            console.warn("Spotify search failed:", res.status, res.statusText);
+          } catch (err) {
+            console.warn("Skipping candidate:", c.recording_mbid, err.message);
           }
-        } catch (err) {
-          console.warn("Skipping candidate:", c.recording_mbid, err.message);
         }
+        
+        return endIndex; // Return where we stopped
+      };
+
+      // Step 5: Process candidates in batches until we have 5 unique songs
+      console.log("Starting recommendation search...");
+      
+      // First batch - process 15 candidates
+      candidateIndex = await processCandidateBatch(0, 15);
+      console.log(`After batch 1: Found ${scoredCandidates.length} tracks`);
+      
+      // If we don't have 5 tracks, process more batches
+      if (scoredCandidates.length < 5 && candidateIndex < candidates.length) {
+        console.log(`Need more tracks. Processing additional candidates...`);
+        
+        // Second batch - process 10 more
+        candidateIndex = await processCandidateBatch(candidateIndex, 10);
+        console.log(`After batch 2: Found ${scoredCandidates.length} tracks`);
+      }
+      
+      // If we still don't have 5 tracks, process more batches
+      if (scoredCandidates.length < 5 && candidateIndex < candidates.length) {
+        console.log(`Still need more tracks. Processing additional candidates...`);
+        
+        // Third batch - process 10 more
+        candidateIndex = await processCandidateBatch(candidateIndex, 10);
+        console.log(`After batch 3: Found ${scoredCandidates.length} tracks`);
+      }
+      
+      // Final fallback - if we still don't have 5, lower the similarity threshold
+      if (scoredCandidates.length < 5 && candidateIndex < candidates.length) {
+        console.log(`Lowering similarity threshold to find more tracks...`);
+        
+        // Temporarily lower similarity threshold for remaining candidates
+        const originalCalculateSimilarity = calculateSimilarityScore;
+        const lowerThresholdCalculate = (feat1, feat2) => {
+          const originalScore = originalCalculateSimilarity(feat1, feat2);
+          return originalScore * 1.2; // Boost scores by 20% to pass the 0.3 threshold
+        };
+        
+        // Save original function and use boosted version
+        const tempCalculateFunc = calculateSimilarityScore;
+        calculateSimilarityScore = lowerThresholdCalculate;
+        
+        // Process remaining candidates with lower threshold
+        await processCandidateBatch(candidateIndex, 15);
+        
+        // Restore original function
+        calculateSimilarityScore = tempCalculateFunc;
+        
+        console.log(`After lowered threshold: Found ${scoredCandidates.length} tracks`);
       }
 
       // Step 6: Sort by similarity and return top 5 matches
