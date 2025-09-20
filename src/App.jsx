@@ -489,13 +489,18 @@ export default function App() {
     <div style={{
       minHeight: "100vh",
       backgroundColor: "#f5f5f5",
-      padding: "20px 0"
+      padding: "20px 0",
+      width: "100%",
+      maxWidth: "100%",
+      overflow: "hidden",
+      boxSizing: "border-box"
     }}>
       <div style={{ 
         maxWidth: 1000, 
         width: "100%", 
         margin: "0 auto",
-        padding: "0 16px"
+        padding: "0 16px",
+        boxSizing: "border-box"
       }}>
         {/* Header */}
         <div style={{ 

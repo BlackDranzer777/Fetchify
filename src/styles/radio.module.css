@@ -4,6 +4,10 @@
   --radius:22px; --shadow:8px 10px 0 var(--ink);
 }
 
+* {
+  box-sizing: border-box;
+}
+
 .radio{
   background:var(--bg);
   border:var(--border) solid var(--ink);
@@ -11,9 +15,10 @@
   padding:20px;
   box-shadow:var(--shadow);
   position:relative;
-  max-width: 100%;
   width: 100%;
+  max-width: 100%;
   box-sizing: border-box;
+  overflow: hidden;
 }
 
 .header{
@@ -34,13 +39,29 @@
   background:#fff; border:3px solid var(--ink); border-radius:16px;
   padding:12px; margin-bottom:14px; box-shadow: 6px 8px 0 var(--ink);
   overflow: hidden;
+  width: 100%;
+  box-sizing: border-box;
 }
 .screenRow{ 
   display:flex; justify-content:space-between; padding:6px 0; 
   word-break: break-word;
   align-items: center;
+  width: 100%;
+  min-width: 0;
 }
 .screenRow + .screenRow{ border-top:2px dashed #ddd; }
+
+.screenRow span {
+  flex-shrink: 0;
+  margin-right: 8px;
+}
+
+.screenRow strong {
+  text-align: right;
+  word-break: break-all;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
 .currentGenre {
   color: #00ff41;
@@ -66,9 +87,13 @@
 .controls{ 
   display:grid; gap:10px; margin:12px 0; 
   grid-template-columns: 1fr;
+  width: 100%;
+  box-sizing: border-box;
 }
 .control{ 
   display:grid; grid-template-columns:120px 1fr; align-items:center; gap:12px; 
+  width: 100%;
+  min-width: 0;
 }
 
 input[type="range"]{
@@ -76,6 +101,7 @@ input[type="range"]{
   background:#fff; border:2px solid var(--ink); box-shadow: inset 0 0 0 2px #fff;
   width: 100%;
   max-width: 100%;
+  min-width: 0;
 }
 input[type="range"]::-webkit-slider-thumb{
   -webkit-appearance:none; appearance:none; width:22px; height:22px;
@@ -90,6 +116,8 @@ input[type="range"]::-moz-range-thumb{
 .genres{ 
   display:flex; flex-wrap:wrap; gap:8px; margin:10px 0 2px; 
   justify-content: center;
+  width: 100%;
+  box-sizing: border-box;
 }
 .genre, .genreActive{
   border:3px solid var(--ink); border-radius:999px; padding:6px 12px;
@@ -104,6 +132,8 @@ input[type="range"]::-moz-range-thumb{
   display:flex; gap:10px; margin-top:10px; 
   justify-content: center;
   flex-wrap: wrap;
+  width: 100%;
+  box-sizing: border-box;
 }
 .btn{
   border:3px solid var(--ink); border-radius:16px; padding:10px 16px;
@@ -120,8 +150,14 @@ input[type="range"]::-moz-range-thumb{
   background: repeating-linear-gradient(
     90deg, #eee, #eee 10px, #ddd 10px, #ddd 18px
   );
+  width: 100%;
+  box-sizing: border-box;
 }
-.feet{ display:flex; gap:14px; justify-content:center; margin-top:10px; }
+.feet{ 
+  display:flex; gap:14px; justify-content:center; margin-top:10px; 
+  width: 100%;
+  box-sizing: border-box;
+}
 .feet span{
   width:46px; height:10px; background:#1E1E1E; border:3px solid var(--ink); border-radius:8px;
 }
@@ -130,7 +166,7 @@ input[type="range"]::-moz-range-thumb{
 @media (max-width: 768px){
   .radio {
     padding: 16px;
-    margin: 0 8px;
+    margin: 0;
   }
   
   .header {
@@ -199,7 +235,7 @@ input[type="range"]::-moz-range-thumb{
 @media (max-width: 480px){
   .radio {
     padding: 12px;
-    margin: 0 4px;
+    margin: 0;
   }
   
   .control{ 
@@ -242,7 +278,7 @@ input[type="range"]::-moz-range-thumb{
 @media (max-width: 320px){
   .radio {
     padding: 10px;
-    margin: 0 2px;
+    margin: 0;
   }
   
   .badge {
