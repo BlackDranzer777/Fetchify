@@ -233,8 +233,6 @@ export default function App() {
     }
   };
 
-
-
   // Create a custom similarity function for user-defined preferences
   const calculateCustomSimilarity = (candidateFeatures, userPreferences) => {
     const weights = {
@@ -288,7 +286,7 @@ export default function App() {
     const isCustomMode = tuneData?.hasUserChanges || false;
     const userPreferences = tuneData?.values;
     
-    console.log(isCustomMode ? "🎛️ Finding songs based on custom settings..." : "🎵 Finding songs similar to current track...");
+    console.log(isCustomMode ? "Custom mode: Finding songs based on custom settings..." : "Finding songs similar to current track...");
     
     // Clear previous results to prevent showing stale data if there's an error
     setTracks([]);
@@ -301,7 +299,7 @@ export default function App() {
 
       console.log("Finding similar songs for:", currentTrack.name);
 
-      // Step 2: ISRC -> MBID (still needed even in custom mode for similarity candidates)
+      // Step 2: ISRC -> MBID
       const mbid = await getMBIDFromISRC(isrc);
       if (!mbid) {
         console.warn("No MBID found for ISRC:", isrc);
@@ -337,7 +335,7 @@ export default function App() {
         });
       }
 
-      // Step 4: Get similarity candidates (we still use the original track's MBID as starting point)
+      // Step 4: Get similarity candidates
       const sim = await getSimilarMBIDs(mbid, 200);
       const candidates = (sim?.[mbid]?.[0] || []).filter(
         (c) => c.recording_mbid && c.recording_mbid !== mbid
@@ -493,30 +491,6 @@ export default function App() {
         candidateIndex = await processCandidateBatch(candidateIndex, 10);
         console.log(`After batch 3: Found ${scoredCandidates.length} tracks`);
       }
-      
-      // Final fallback - if we still don't have 5, lower the similarity threshold
-      if (scoredCandidates.length < 5 && candidateIndex < candidates.length) {
-        console.log(`Lowering similarity threshold to find more tracks...`);
-        
-        // Temporarily lower similarity threshold for remaining candidates
-        const originalCalculateSimilarity = calculateSimilarityScore;
-        const lowerThresholdCalculate = (feat1, feat2) => {
-          const originalScore = originalCalculateSimilarity(feat1, feat2);
-          return originalScore * 1.2; // Boost scores by 20% to pass the 0.3 threshold
-        };
-        
-        // Save original function and use boosted version
-        const tempCalculateFunc = calculateSimilarityScore;
-        calculateSimilarityScore = lowerThresholdCalculate;
-        
-        // Process remaining candidates with lower threshold
-        await processCandidateBatch(candidateIndex, 15);
-        
-        // Restore original function
-        calculateSimilarityScore = tempCalculateFunc;
-        
-        console.log(`After lowered threshold: Found ${scoredCandidates.length} tracks`);
-      }
 
       // Step 6: Sort by similarity and return top 5 matches
       const topMatches = scoredCandidates
@@ -548,64 +522,6 @@ export default function App() {
     } finally {
       setLoading(false);
     }
-  };
-
-  // DEBUG FUNCTION - Remove this later
-  const debugCurrentTrack = async () => {
-    if (!currentTrack || !token) {
-      console.log("No current track or token");
-      return;
-    }
-
-    console.log("DEBUGGING CURRENT TRACK");
-    console.log("Track:", currentTrack.name, "by", currentTrack.artists[0].name);
-    
-    // Get ISRC
-    const isrc = currentTrack.external_ids?.isrc || 
-      (await getTrackById(token.access_token, currentTrack.id)).external_ids.isrc;
-    console.log("ISRC:", isrc);
-    
-    // Get MBID
-    const mbid = await getMBIDFromISRC(isrc);
-    console.log("MBID:", mbid);
-    
-    if (!mbid) {
-      console.log("No MBID found - this explains why recommendations fail!");
-      return;
-    }
-    
-    // Get features
-    const features = await extractFeatures(mbid);
-    console.log("Features:", features);
-    
-    // Get similarity candidates  
-    const sim = await getSimilarMBIDs(mbid, 50);
-    const candidates = sim?.[mbid]?.[0] || [];
-    console.log("Similarity candidates:", candidates.length);
-    
-    // Test a few candidates
-    if (candidates.length > 0) {
-      console.log("Testing first 3 candidates:");
-      for (let i = 0; i < Math.min(3, candidates.length); i++) {
-        const c = candidates[i];
-        try {
-          const feat = await extractFeatures(c.recording_mbid);
-          console.log(`Candidate ${i+1}:`, {
-            mbid: c.recording_mbid,
-            title: feat?.title,
-            artist: feat?.artist,
-            dance: feat?.dance?.toFixed(3),
-            energy: feat?.energy?.toFixed(3),
-            valence: feat?.valence?.toFixed(3)
-          });
-          await new Promise(r => setTimeout(r, 1000)); // Rate limit
-        } catch (err) {
-          console.log(`Candidate ${i+1} failed:`, err.message);
-        }
-      }
-    }
-    
-    return { isrc, mbid, features, candidateCount: candidates.length };
   };
 
   // show login if no token yet
@@ -727,7 +643,10 @@ export default function App() {
         {/* Radio UI */}
         <div style={{ marginBottom: "30px" }}>
           <RadioUI
-            onTune={() => {}}
+            onTune={(data) => {
+              console.log("onTune received in App.jsx:", data);
+              handleFindSimilar(data);
+            }}
             onSave={() => {}}
             loading={loading}
             defaultValues={features}
@@ -743,7 +662,7 @@ export default function App() {
           flexWrap: "wrap"
         }}>
           <button 
-            onClick={handleFindSimilar}
+            onClick={() => handleFindSimilar()}
             disabled={loading}
             style={{
               padding: "12px 24px",
@@ -758,23 +677,6 @@ export default function App() {
             }}
           >
             {loading ? "Finding..." : "Find Similar Songs"}
-          </button>
-          
-          {/* DEBUG BUTTON - Remove this later */}
-          <button 
-            onClick={debugCurrentTrack}
-            style={{ 
-              padding: "8px 16px",
-              fontSize: "14px",
-              backgroundColor: "#ff6b6b", 
-              color: "white", 
-              border: "3px solid #111", 
-              borderRadius: "8px",
-              cursor: "pointer",
-              boxShadow: "3px 4px 0 #111"
-            }}
-          >
-            Debug Track
           </button>
         </div>
 
