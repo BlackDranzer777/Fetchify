@@ -292,236 +292,308 @@ export default function App() {
     setTracks([]);
 
     try {
-      // Step 1: Get ISRC
-      const isrc =
-        currentTrack.external_ids?.isrc ||
-        (await getTrackById(token.access_token, currentTrack.id)).external_ids.isrc;
-
-      console.log("Finding similar songs for:", currentTrack.name);
-
-      // Step 2: ISRC -> MBID
-      const mbid = await getMBIDFromISRC(isrc);
-      if (!mbid) {
-        console.warn("No MBID found for ISRC:", isrc);
-        setTracks([]);
-        return;
-      }
-
-      // Step 3: Extract features for current song (only if not in custom mode)
-      let currentFeat = null;
-      if (!isCustomMode) {
-        currentFeat = await extractFeatures(mbid);
-        if (!currentFeat) {
-          console.warn("No features for current track");
-          setTracks([]);
-          return;
-        }
-
-        console.log("Current track features:", {
-          dance: currentFeat.dance?.toFixed(3),
-          energy: currentFeat.energy?.toFixed(3),
-          valence: currentFeat.valence?.toFixed(3),
-          tempo: currentFeat.tempo,
-          genre: currentFeat.genre,
-          hasLyrics: currentFeat.hasLyrics
-        });
+      if (isCustomMode) {
+        // CUSTOM MODE: Search directly by audio features, not by similar tracks
+        await findSongsByAudioFeatures(userPreferences);
       } else {
-        console.log("Custom preferences:", {
-          dance: userPreferences.danceability?.toFixed(3),
-          energy: userPreferences.energy?.toFixed(3),
-          valence: userPreferences.valence?.toFixed(3),
-          tempo: userPreferences.tempo,
-          genres: userPreferences.genres
-        });
+        // ORIGINAL MODE: Use similarity-based search
+        await findSongsBySimilarity();
       }
-
-      // Step 4: Get similarity candidates
-      const sim = await getSimilarMBIDs(mbid, 200);
-      const candidates = (sim?.[mbid]?.[0] || []).filter(
-        (c) => c.recording_mbid && c.recording_mbid !== mbid
-      );
-
-      console.log("Got", candidates.length, "similarity candidates");
-
-      const scoredCandidates = [];
-      const seenTracks = new Set(); // Track seen combinations to prevent duplicates
-      let candidateIndex = 0;
-      
-      // Helper function to process a batch of candidates
-      const processCandidateBatch = async (startIndex, batchSize) => {
-        const endIndex = Math.min(startIndex + batchSize, candidates.length);
-        
-        for (let i = startIndex; i < endIndex; i++) {
-          const c = candidates[i];
-          
-          try {
-            // Rate limit delay
-            await new Promise(r => setTimeout(r, 1000));
-
-            const feat = await extractFeatures(c.recording_mbid);
-            if (!feat || !feat.title || !feat.artist) continue;
-
-            // Calculate similarity score based on mode
-            let similarity;
-            let isReasonableMatch;
-            
-            if (isCustomMode) {
-              // Custom mode: compare against user preferences
-              similarity = calculateCustomSimilarity(feat, userPreferences);
-              
-              // More lenient genre filtering for custom mode
-              const userGenres = userPreferences.genres || [];
-              const genreMatch = userGenres.length === 0 || 
-                                userGenres.includes(feat.genre) ||
-                                calculateGenreSimilarity(feat.genre, userGenres[0]) > 0.5; // Allow similar genres
-              
-              isReasonableMatch = 
-                similarity > 0.3 && // Lower threshold for custom mode 
-                genreMatch &&
-                Math.abs(feat.tempo - userPreferences.tempo) <= 60; // Looser tempo match
-                
-              console.log(`Custom candidate: ${feat.title} by ${feat.artist} - similarity: ${similarity.toFixed(3)}, genre match: ${genreMatch}, tempo diff: ${Math.abs(feat.tempo - userPreferences.tempo)}`);
-                
-            } else {
-              // Original mode: compare against current track
-              similarity = calculateSimilarityScore(currentFeat, feat);
-              
-              isReasonableMatch = 
-                similarity > 0.3 && // Basic similarity threshold
-                Math.abs(feat.tempo - currentFeat.tempo) <= 60 && // Looser tempo
-                !(currentFeat.hasLyrics && !feat.hasLyrics && similarity < 0.4); // More lenient vocal/instrumental mixing
-            }
-
-            if (!isReasonableMatch) continue;
-
-            // Try to find on Spotify
-            const query = `track:"${feat.title}" artist:"${feat.artist}"`;
-            const res = await fetch(
-              `https://api.spotify.com/v1/search?q=${encodeURIComponent(query)}&type=track&limit=1`,
-              { headers: { Authorization: `Bearer ${token.access_token}` } }
-            );
-
-            if (res.ok) {
-              const data = await res.json();
-              
-              // Add comprehensive validation for Spotify track data
-              if (data && data.tracks && data.tracks.items && Array.isArray(data.tracks.items)) {
-                const spTrack = data.tracks.items[0];
-                
-                // Validate all required properties
-                if (spTrack && 
-                    typeof spTrack.id === 'string' && 
-                    typeof spTrack.name === 'string' && 
-                    Array.isArray(spTrack.artists) && 
-                    spTrack.artists.length > 0 &&
-                    spTrack.artists[0].name &&
-                    spTrack.external_urls &&
-                    spTrack.external_urls.spotify) {
-                  
-                  // Create unique identifier for duplicate detection
-                  const trackKey = `${spTrack.name.toLowerCase().trim()}-${spTrack.artists[0].name.toLowerCase().trim()}`;
-                  
-                  // Skip if we've already seen this track
-                  if (seenTracks.has(trackKey)) {
-                    console.log(`Skipping duplicate: ${spTrack.name} by ${spTrack.artists[0].name}`);
-                    continue;
-                  }
-                  
-                  // Skip if this is the same as current track
-                  if (spTrack.id === currentTrack.id) {
-                    console.log(`Skipping current track: ${spTrack.name}`);
-                    continue;
-                  }
-                  
-                  // Add to seen tracks
-                  seenTracks.add(trackKey);
-                  
-                  scoredCandidates.push({
-                    id: spTrack.id,
-                    name: spTrack.name,
-                    artists: spTrack.artists,
-                    album: spTrack.album || { images: [] },
-                    external_urls: spTrack.external_urls,
-                    preview_url: spTrack.preview_url || null,
-                    popularity: spTrack.popularity || 0,
-                    similarity: similarity.toFixed(3),
-                    features: feat
-                  });
-                  
-                  console.log(`Added track ${scoredCandidates.length}: ${spTrack.name} by ${spTrack.artists[0].name} (similarity: ${similarity.toFixed(3)})`);
-                  
-                } else {
-                  console.warn("Invalid Spotify track structure:", spTrack);
-                }
-              } else {
-                console.warn("Invalid Spotify search response:", data);
-              }
-            } else {
-              console.warn("Spotify search failed:", res.status, res.statusText);
-            }
-          } catch (err) {
-            console.warn("Skipping candidate:", c.recording_mbid, err.message);
-          }
-        }
-        
-        return endIndex; // Return where we stopped
-      };
-
-      // Step 5: Process candidates in batches until we have 5 unique songs
-      console.log("Starting recommendation search...");
-      
-      // First batch - process 15 candidates
-      candidateIndex = await processCandidateBatch(0, 15);
-      console.log(`After batch 1: Found ${scoredCandidates.length} tracks`);
-      
-      // If we don't have 5 tracks, process more batches
-      if (scoredCandidates.length < 5 && candidateIndex < candidates.length) {
-        console.log(`Need more tracks. Processing additional candidates...`);
-        
-        // Second batch - process 10 more
-        candidateIndex = await processCandidateBatch(candidateIndex, 10);
-        console.log(`After batch 2: Found ${scoredCandidates.length} tracks`);
-      }
-      
-      // If we still don't have 5 tracks, process more batches
-      if (scoredCandidates.length < 5 && candidateIndex < candidates.length) {
-        console.log(`Still need more tracks. Processing additional candidates...`);
-        
-        // Third batch - process 10 more
-        candidateIndex = await processCandidateBatch(candidateIndex, 10);
-        console.log(`After batch 3: Found ${scoredCandidates.length} tracks`);
-      }
-
-      // Step 6: Sort by similarity and return top 5 matches
-      const topMatches = scoredCandidates
-        .filter(track => track && track.id && track.name && track.artists) // Filter out invalid tracks
-        .sort((a, b) => parseFloat(b.similarity) - parseFloat(a.similarity))
-        .slice(0, 5); // Limit to 5 recommendations
-
-      console.log("Found", topMatches.length, "unique similar tracks:");
-      topMatches.forEach((track, index) => {
-        try {
-          const artistName = track.artists?.[0]?.name || 'Unknown Artist';
-          console.log(`  ${index + 1}. ${track.similarity} - ${track.name} by ${artistName}`);
-        } catch (err) {
-          console.warn(`Error logging track ${index}:`, err);
-        }
-      });
-
-      // Final safety check before setting state
-      try {
-        setTracks(topMatches);
-      } catch (err) {
-        console.error("Error setting tracks state:", err);
-        setTracks([]); // Set empty array as fallback
-      }
-
     } catch (e) {
-      console.error("Error fetching similar songs:", e);
+      console.error("Error fetching songs:", e);
       setTracks([]);
     } finally {
       setLoading(false);
     }
+  };
+
+  // Custom search: Find songs directly by audio features
+  const findSongsByAudioFeatures = async (userPreferences) => {
+    console.log("Searching by audio features:", userPreferences);
+    
+    const scoredCandidates = [];
+    const seenTracks = new Set();
+    
+    // Search strategy: Use Spotify's genre-based search + audio feature filtering
+    const searchGenres = userPreferences.genres && userPreferences.genres.length > 0 
+      ? userPreferences.genres 
+      : ['pop']; // Default to pop if no genres selected
+    
+    for (const genre of searchGenres) {
+      console.log(`Searching Spotify for ${genre} tracks...`);
+      
+      try {
+        // Search Spotify for tracks in this genre
+        const genreQuery = `genre:${genre}`;
+        const res = await fetch(
+          `https://api.spotify.com/v1/search?q=${encodeURIComponent(genreQuery)}&type=track&limit=50&market=US`,
+          { headers: { Authorization: `Bearer ${token.access_token}` } }
+        );
+        
+        if (!res.ok) {
+          console.warn(`Spotify search failed for genre ${genre}:`, res.status);
+          continue;
+        }
+        
+        const data = await res.json();
+        const tracks = data.tracks?.items || [];
+        
+        console.log(`Found ${tracks.length} tracks for genre: ${genre}`);
+        
+        // Process each track
+        for (const track of tracks) {
+          if (scoredCandidates.length >= 5) break; // Stop when we have enough
+          
+          // Skip duplicates and current track
+          const trackKey = `${track.name.toLowerCase().trim()}-${track.artists[0].name.toLowerCase().trim()}`;
+          if (seenTracks.has(trackKey) || track.id === currentTrack.id) continue;
+          
+          try {
+            // Rate limit
+            await new Promise(r => setTimeout(r, 800));
+            
+            // Get audio features for this track
+            const isrc = track.external_ids?.isrc;
+            if (!isrc) continue;
+            
+            const mbid = await getMBIDFromISRC(isrc);
+            if (!mbid) continue;
+            
+            const features = await extractFeatures(mbid);
+            if (!features) continue;
+            
+            // Calculate how well this matches user preferences
+            const similarity = calculateCustomSimilarity(features, userPreferences);
+            
+            // More lenient threshold for custom search since we're searching broadly
+            if (similarity > 0.4) {
+              seenTracks.add(trackKey);
+              scoredCandidates.push({
+                ...track,
+                similarity: similarity.toFixed(3),
+                features: features
+              });
+              
+              console.log(`Added custom match: ${track.name} by ${track.artists[0].name} (similarity: ${similarity.toFixed(3)})`);
+            }
+            
+          } catch (err) {
+            console.warn(`Error processing track ${track.name}:`, err.message);
+          }
+        }
+        
+        // Break if we have enough tracks
+        if (scoredCandidates.length >= 5) break;
+        
+      } catch (err) {
+        console.warn(`Error searching genre ${genre}:`, err.message);
+      }
+    }
+    
+    // If we still don't have enough tracks, expand search with broader terms
+    if (scoredCandidates.length < 3) {
+      console.log("Expanding search with broader terms...");
+      
+      // Try searching with tempo and energy ranges
+      const tempoRange = userPreferences.tempo > 120 ? "fast" : "slow";
+      const energyRange = userPreferences.energy > 0.6 ? "energetic" : "chill";
+      
+      try {
+        const broadQuery = `${tempoRange} ${energyRange}`;
+        const res = await fetch(
+          `https://api.spotify.com/v1/search?q=${encodeURIComponent(broadQuery)}&type=track&limit=30&market=US`,
+          { headers: { Authorization: `Bearer ${token.access_token}` } }
+        );
+        
+        if (res.ok) {
+          const data = await res.json();
+          const tracks = data.tracks?.items || [];
+          
+          for (const track of tracks) {
+            if (scoredCandidates.length >= 5) break;
+            
+            const trackKey = `${track.name.toLowerCase().trim()}-${track.artists[0].name.toLowerCase().trim()}`;
+            if (seenTracks.has(trackKey) || track.id === currentTrack.id) continue;
+            
+            try {
+              await new Promise(r => setTimeout(r, 800));
+              
+              const isrc = track.external_ids?.isrc;
+              if (!isrc) continue;
+              
+              const mbid = await getMBIDFromISRC(isrc);
+              if (!mbid) continue;
+              
+              const features = await extractFeatures(mbid);
+              if (!features) continue;
+              
+              const similarity = calculateCustomSimilarity(features, userPreferences);
+              
+              if (similarity > 0.3) { // Even more lenient for broad search
+                seenTracks.add(trackKey);
+                scoredCandidates.push({
+                  ...track,
+                  similarity: similarity.toFixed(3),
+                  features: features
+                });
+                
+                console.log(`Added broad match: ${track.name} (similarity: ${similarity.toFixed(3)})`);
+              }
+              
+            } catch (err) {
+              console.warn(`Error in broad search:`, err.message);
+            }
+          }
+        }
+      } catch (err) {
+        console.warn("Broad search failed:", err.message);
+      }
+    }
+    
+    // Sort by similarity and return results
+    const topMatches = scoredCandidates
+      .sort((a, b) => parseFloat(b.similarity) - parseFloat(a.similarity))
+      .slice(0, 5);
+      
+    console.log(`Custom search complete: Found ${topMatches.length} matching tracks`);
+    setTracks(topMatches);
+  };
+
+  // Original similarity-based search
+  const findSongsBySimilarity = async () => {
+    // Step 1: Get ISRC
+    const isrc =
+      currentTrack.external_ids?.isrc ||
+      (await getTrackById(token.access_token, currentTrack.id)).external_ids.isrc;
+
+    console.log("Finding similar songs for:", currentTrack.name);
+
+    // Step 2: ISRC -> MBID
+    const mbid = await getMBIDFromISRC(isrc);
+    if (!mbid) {
+      console.warn("No MBID found for ISRC:", isrc);
+      setTracks([]);
+      return;
+    }
+
+    // Step 3: Extract features for current song
+    const currentFeat = await extractFeatures(mbid);
+    if (!currentFeat) {
+      console.warn("No features for current track");
+      setTracks([]);
+      return;
+    }
+
+    console.log("Current track features:", {
+      dance: currentFeat.dance?.toFixed(3),
+      energy: currentFeat.energy?.toFixed(3),
+      valence: currentFeat.valence?.toFixed(3),
+      tempo: currentFeat.tempo,
+      genre: currentFeat.genre,
+      hasLyrics: currentFeat.hasLyrics
+    });
+
+    // Step 4: Get similarity candidates
+    const sim = await getSimilarMBIDs(mbid, 200);
+    const candidates = (sim?.[mbid]?.[0] || []).filter(
+      (c) => c.recording_mbid && c.recording_mbid !== mbid
+    );
+
+    console.log("Got", candidates.length, "similarity candidates");
+
+    const scoredCandidates = [];
+    const seenTracks = new Set();
+    let candidateIndex = 0;
+    
+    // Helper function to process a batch of candidates
+    const processCandidateBatch = async (startIndex, batchSize) => {
+      const endIndex = Math.min(startIndex + batchSize, candidates.length);
+      
+      for (let i = startIndex; i < endIndex; i++) {
+        const c = candidates[i];
+        
+        try {
+          await new Promise(r => setTimeout(r, 1000));
+
+          const feat = await extractFeatures(c.recording_mbid);
+          if (!feat || !feat.title || !feat.artist) continue;
+
+          const similarity = calculateSimilarityScore(currentFeat, feat);
+          
+          const isReasonableMatch = 
+            similarity > 0.3 &&
+            Math.abs(feat.tempo - currentFeat.tempo) <= 60 &&
+            !(currentFeat.hasLyrics && !feat.hasLyrics && similarity < 0.4);
+
+          if (!isReasonableMatch) continue;
+
+          const query = `track:"${feat.title}" artist:"${feat.artist}"`;
+          const res = await fetch(
+            `https://api.spotify.com/v1/search?q=${encodeURIComponent(query)}&type=track&limit=1`,
+            { headers: { Authorization: `Bearer ${token.access_token}` } }
+          );
+
+          if (res.ok) {
+            const data = await res.json();
+            
+            if (data && data.tracks && data.tracks.items && Array.isArray(data.tracks.items)) {
+              const spTrack = data.tracks.items[0];
+              
+              if (spTrack && 
+                  typeof spTrack.id === 'string' && 
+                  typeof spTrack.name === 'string' && 
+                  Array.isArray(spTrack.artists) && 
+                  spTrack.artists.length > 0 &&
+                  spTrack.artists[0].name &&
+                  spTrack.external_urls &&
+                  spTrack.external_urls.spotify) {
+                
+                const trackKey = `${spTrack.name.toLowerCase().trim()}-${spTrack.artists[0].name.toLowerCase().trim()}`;
+                
+                if (seenTracks.has(trackKey) || spTrack.id === currentTrack.id) continue;
+                
+                seenTracks.add(trackKey);
+                
+                scoredCandidates.push({
+                  id: spTrack.id,
+                  name: spTrack.name,
+                  artists: spTrack.artists,
+                  album: spTrack.album || { images: [] },
+                  external_urls: spTrack.external_urls,
+                  preview_url: spTrack.preview_url || null,
+                  popularity: spTrack.popularity || 0,
+                  similarity: similarity.toFixed(3),
+                  features: feat
+                });
+                
+                console.log(`Added track ${scoredCandidates.length}: ${spTrack.name} by ${spTrack.artists[0].name}`);
+              }
+            }
+          }
+        } catch (err) {
+          console.warn("Skipping candidate:", c.recording_mbid, err.message);
+        }
+      }
+      
+      return endIndex;
+    };
+
+    // Process candidates in batches
+    candidateIndex = await processCandidateBatch(0, 15);
+    if (scoredCandidates.length < 5 && candidateIndex < candidates.length) {
+      candidateIndex = await processCandidateBatch(candidateIndex, 10);
+    }
+    if (scoredCandidates.length < 5 && candidateIndex < candidates.length) {
+      candidateIndex = await processCandidateBatch(candidateIndex, 10);
+    }
+
+    const topMatches = scoredCandidates
+      .filter(track => track && track.id && track.name && track.artists)
+      .sort((a, b) => parseFloat(b.similarity) - parseFloat(a.similarity))
+      .slice(0, 5);
+
+    console.log("Found", topMatches.length, "unique similar tracks");
+    setTracks(topMatches);
   };
 
   // show login if no token yet
