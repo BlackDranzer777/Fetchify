@@ -301,7 +301,7 @@ export default function App() {
 
       console.log("Finding similar songs for:", currentTrack.name);
 
-      // Step 2: ISRC -> MBID
+      // Step 2: ISRC -> MBID (still needed even in custom mode for similarity candidates)
       const mbid = await getMBIDFromISRC(isrc);
       if (!mbid) {
         console.warn("No MBID found for ISRC:", isrc);
@@ -337,7 +337,7 @@ export default function App() {
         });
       }
 
-      // Step 4: Get MORE similarity candidates (increase from 100 to 200)
+      // Step 4: Get similarity candidates (we still use the original track's MBID as starting point)
       const sim = await getSimilarMBIDs(mbid, 200);
       const candidates = (sim?.[mbid]?.[0] || []).filter(
         (c) => c.recording_mbid && c.recording_mbid !== mbid
@@ -371,14 +371,18 @@ export default function App() {
               // Custom mode: compare against user preferences
               similarity = calculateCustomSimilarity(feat, userPreferences);
               
-              // Filter based on user's selected genres
+              // More lenient genre filtering for custom mode
               const userGenres = userPreferences.genres || [];
-              const genreMatch = userGenres.length === 0 || userGenres.includes(feat.genre);
+              const genreMatch = userGenres.length === 0 || 
+                                userGenres.includes(feat.genre) ||
+                                calculateGenreSimilarity(feat.genre, userGenres[0]) > 0.5; // Allow similar genres
               
               isReasonableMatch = 
-                similarity > 0.4 && // Higher threshold for custom mode
+                similarity > 0.3 && // Lower threshold for custom mode 
                 genreMatch &&
-                Math.abs(feat.tempo - userPreferences.tempo) <= 50; // Stricter tempo match
+                Math.abs(feat.tempo - userPreferences.tempo) <= 60; // Looser tempo match
+                
+              console.log(`Custom candidate: ${feat.title} by ${feat.artist} - similarity: ${similarity.toFixed(3)}, genre match: ${genreMatch}, tempo diff: ${Math.abs(feat.tempo - userPreferences.tempo)}`);
                 
             } else {
               // Original mode: compare against current track
