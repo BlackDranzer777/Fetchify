@@ -42,7 +42,11 @@ export default function RadioUI({ onTune, onSave, defaultValues, loading }) {
     setHasUserChanges(true); // Mark that user has made changes
   };
 
-  const handleTuneIn = () => {
+  const handleTuneIn = (e) => {
+    e.preventDefault();
+    console.log("Radio button clicked! User changes:", hasUserChanges);
+    console.log("Current values:", vals);
+    
     // Pass current values and whether user made changes to parent
     onTune({
       values: vals,
@@ -164,6 +168,7 @@ export default function RadioUI({ onTune, onSave, defaultValues, loading }) {
           onClick={handleTuneIn}
           disabled={loading}
           aria-label="Tune In"
+          style={loading ? { opacity: 0.5, cursor: 'not-allowed' } : {}}
         >
           {hasUserChanges ? "Find Custom Mix" : "Find Similar Songs"}
         </button>
