@@ -3,7 +3,7 @@ import styles from '../styles/radio.module.css';
 
 const GENRES = ['pop', 'rock', 'jazz', 'hip-hop', 'dance', 'electronic', 'indie'];
 
-export default function RadioUI({ onTune, onSave, defaultValues }) {
+export default function RadioUI({ onTune, onSave, defaultValues, loading }) {
   const [vals, setVals] = useState({
     danceability: 0.7,
     energy: 0.6,
@@ -11,6 +11,8 @@ export default function RadioUI({ onTune, onSave, defaultValues }) {
     tempo: 120,
     genres: ['pop'],
   });
+
+  const [hasUserChanges, setHasUserChanges] = useState(false);
 
   // Update state when defaultValues arrive from App.jsx
   useEffect(() => {
@@ -21,15 +23,30 @@ export default function RadioUI({ onTune, onSave, defaultValues }) {
         // Auto-select current track's genre if available
         genres: defaultValues.currentGenre ? [defaultValues.currentGenre] : v.genres
       }));
+      // Reset user changes when new track loads
+      setHasUserChanges(false);
     }
   }, [defaultValues]);
 
-  const setNum = (k) => (e) => setVals((v) => ({ ...v, [k]: Number(e.target.value) }));
+  const setNum = (k) => (e) => {
+    setVals((v) => ({ ...v, [k]: Number(e.target.value) }));
+    setHasUserChanges(true); // Mark that user has made changes
+  };
+
   const toggleGenre = (g) => {
     setVals((v) => {
       const has = v.genres.includes(g);
       const next = has ? v.genres.filter((x) => x !== g) : [...v.genres, g];
       return { ...v, genres: next.slice(0, 5) }; // max 5 seeds
+    });
+    setHasUserChanges(true); // Mark that user has made changes
+  };
+
+  const handleTuneIn = () => {
+    // Pass current values and whether user made changes to parent
+    onTune({
+      values: vals,
+      hasUserChanges: hasUserChanges
     });
   };
 
@@ -63,6 +80,13 @@ export default function RadioUI({ onTune, onSave, defaultValues }) {
           <div className={styles.screenRow}>
             <span>Current Genre</span>
             <strong className={styles.currentGenre}>{defaultValues.currentGenre.toUpperCase()}</strong>
+          </div>
+        )}
+        {/* Show if user has made changes */}
+        {hasUserChanges && (
+          <div className={styles.screenRow}>
+            <span>Mode</span>
+            <strong style={{ color: '#F26B1D' }}>CUSTOM</strong>
           </div>
         )}
         <div className={styles.equalizer} aria-hidden="true">
@@ -137,10 +161,11 @@ export default function RadioUI({ onTune, onSave, defaultValues }) {
       <div className={styles.actions}>
         <button
           className={`${styles.btn} ${styles.btnPrimary}`}
-          onClick={(e) => { e.preventDefault(); onTune(vals); }}
+          onClick={handleTuneIn}
+          disabled={loading}
           aria-label="Tune In"
         >
-          Tune In
+          {hasUserChanges ? "Find Custom Mix" : "Find Similar Songs"}
         </button>
         <button
           className={`${styles.btn} ${styles.btnSecondary}`}

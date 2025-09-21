@@ -235,10 +235,60 @@ export default function App() {
 
 
 
-  // IMPROVED Find Similar Songs Function
-  const handleFindSimilar = async () => {
+  // Create a custom similarity function for user-defined preferences
+  const calculateCustomSimilarity = (candidateFeatures, userPreferences) => {
+    const weights = {
+      dance: 0.30,    // Higher weight for user preferences
+      energy: 0.30, 
+      valence: 0.25,
+      tempo: 0.15
+    };
+
+    let totalSim = 0;
+    let totalWeight = 0;
+
+    // Danceability similarity
+    if (candidateFeatures.dance !== undefined) {
+      const diff = Math.abs(candidateFeatures.dance - userPreferences.danceability);
+      totalSim += (1 - diff) * weights.dance;
+      totalWeight += weights.dance;
+    }
+    
+    // Energy similarity
+    if (candidateFeatures.energy !== undefined) {
+      const diff = Math.abs(candidateFeatures.energy - userPreferences.energy);
+      totalSim += (1 - diff) * weights.energy;
+      totalWeight += weights.energy;
+    }
+    
+    // Valence similarity
+    if (candidateFeatures.valence !== undefined) {
+      const diff = Math.abs(candidateFeatures.valence - userPreferences.valence);
+      totalSim += (1 - diff) * weights.valence;
+      totalWeight += weights.valence;
+    }
+    
+    // Tempo similarity
+    if (candidateFeatures.tempo) {
+      const diff = Math.abs(candidateFeatures.tempo - userPreferences.tempo);
+      const tempoSim = Math.max(0, 1 - diff / 60); // 60 BPM tolerance
+      totalSim += tempoSim * weights.tempo;
+      totalWeight += weights.tempo;
+    }
+
+    return totalWeight > 0 ? totalSim / totalWeight : 0;
+  };
+
+  // IMPROVED Find Similar Songs Function - now handles custom preferences
+  const handleFindSimilar = async (tuneData = null) => {
     if (!currentTrack) return;
     setLoading(true);
+    
+    // Check if user provided custom values or we should use original track features
+    const isCustomMode = tuneData?.hasUserChanges || false;
+    const userPreferences = tuneData?.values;
+    
+    console.log(isCustomMode ? "🎛️ Finding songs based on custom settings..." : "🎵 Finding songs similar to current track...");
     
     // Clear previous results to prevent showing stale data if there's an error
     setTracks([]);
@@ -259,22 +309,33 @@ export default function App() {
         return;
       }
 
-      // Step 3: Extract features for current song
-      const currentFeat = await extractFeatures(mbid);
-      if (!currentFeat) {
-        console.warn("No features for current track");
-        setTracks([]);
-        return;
-      }
+      // Step 3: Extract features for current song (only if not in custom mode)
+      let currentFeat = null;
+      if (!isCustomMode) {
+        currentFeat = await extractFeatures(mbid);
+        if (!currentFeat) {
+          console.warn("No features for current track");
+          setTracks([]);
+          return;
+        }
 
-      console.log("Current track features:", {
-        dance: currentFeat.dance?.toFixed(3),
-        energy: currentFeat.energy?.toFixed(3),
-        valence: currentFeat.valence?.toFixed(3),
-        tempo: currentFeat.tempo,
-        genre: currentFeat.genre,  // Show genre (now just a string)
-        hasLyrics: currentFeat.hasLyrics
-      });
+        console.log("Current track features:", {
+          dance: currentFeat.dance?.toFixed(3),
+          energy: currentFeat.energy?.toFixed(3),
+          valence: currentFeat.valence?.toFixed(3),
+          tempo: currentFeat.tempo,
+          genre: currentFeat.genre,
+          hasLyrics: currentFeat.hasLyrics
+        });
+      } else {
+        console.log("Custom preferences:", {
+          dance: userPreferences.danceability?.toFixed(3),
+          energy: userPreferences.energy?.toFixed(3),
+          valence: userPreferences.valence?.toFixed(3),
+          tempo: userPreferences.tempo,
+          genres: userPreferences.genres
+        });
+      }
 
       // Step 4: Get MORE similarity candidates (increase from 100 to 200)
       const sim = await getSimilarMBIDs(mbid, 200);
@@ -302,14 +363,32 @@ export default function App() {
             const feat = await extractFeatures(c.recording_mbid);
             if (!feat || !feat.title || !feat.artist) continue;
 
-            // Calculate similarity score (0-1, higher = more similar)
-            const similarity = calculateSimilarityScore(currentFeat, feat);
+            // Calculate similarity score based on mode
+            let similarity;
+            let isReasonableMatch;
             
-            // More flexible filtering (only filter out obvious mismatches)
-            const isReasonableMatch = 
-              similarity > 0.3 && // Basic similarity threshold
-              Math.abs(feat.tempo - currentFeat.tempo) <= 60 && // Looser tempo
-              !(currentFeat.hasLyrics && !feat.hasLyrics && similarity < 0.4); // More lenient vocal/instrumental mixing
+            if (isCustomMode) {
+              // Custom mode: compare against user preferences
+              similarity = calculateCustomSimilarity(feat, userPreferences);
+              
+              // Filter based on user's selected genres
+              const userGenres = userPreferences.genres || [];
+              const genreMatch = userGenres.length === 0 || userGenres.includes(feat.genre);
+              
+              isReasonableMatch = 
+                similarity > 0.4 && // Higher threshold for custom mode
+                genreMatch &&
+                Math.abs(feat.tempo - userPreferences.tempo) <= 50; // Stricter tempo match
+                
+            } else {
+              // Original mode: compare against current track
+              similarity = calculateSimilarityScore(currentFeat, feat);
+              
+              isReasonableMatch = 
+                similarity > 0.3 && // Basic similarity threshold
+                Math.abs(feat.tempo - currentFeat.tempo) <= 60 && // Looser tempo
+                !(currentFeat.hasLyrics && !feat.hasLyrics && similarity < 0.4); // More lenient vocal/instrumental mixing
+            }
 
             if (!isReasonableMatch) continue;
 
