@@ -301,7 +301,7 @@ const Header = ({ user }) => (
       color: '#666', 
       margin: 0 
     }}>
-      {user ? `Hello, ${user.display_name}! this is staging server` : "Loading user..."}
+      {user ? `Hello, ${user.display_name}! this is main server with new code.` : "Loading user..."}
     </p>
   </div>
 );
