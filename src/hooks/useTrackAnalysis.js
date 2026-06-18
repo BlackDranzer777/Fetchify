@@ -1,10 +1,8 @@
 // src/hooks/useTrackAnalysis.js
 import { useState, useEffect } from 'react';
-import { 
-  getMBIDFromISRC, 
-  getABFeatures, 
-  getABLowLevel, 
-  extractFeatures 
+import {
+  getMBIDFromISRC,
+  extractFeatures
 } from '../api/musicAnalysis';
 import { getTrackById } from '../api/spotify';
 import { fuseFeatures } from '../lib/fuseFeatures';
@@ -39,13 +37,11 @@ export const useTrackAnalysis = (token, currentTrack) => {
         throw new Error('No MBID found for ISRC');
       }
 
-      // Get features
-      const [abHigh, abLow, currentFeat] = await Promise.all([
-        getABFeatures(mbid),
-        getABLowLevel(mbid),
-        extractFeatures(mbid)
-      ]);
+      // Get features (single fetch; raw high/low reused for fusion below)
+      const currentFeat = await extractFeatures(mbid);
 
+      const abHigh = currentFeat?.raw?.high;
+      const abLow = currentFeat?.raw?.low;
       if (!abHigh || !abLow) {
         throw new Error('Could not fetch AcousticBrainz features');
       }

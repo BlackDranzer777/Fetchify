@@ -1,18 +1,48 @@
 // src/api/musicAnalysis.js
 
+// --- In-memory caches -------------------------------------------------------
+// AcousticBrainz / MusicBrainz are heavily rate-limited, so we memoize lookups
+// for the lifetime of the page. Each cache also de-dupes in-flight requests:
+// concurrent callers asking for the same key share a single promise.
+const mbidCache = new Map();      // isrc  -> mbid (or null)
+const featuresCache = new Map();  // mbid  -> features object (or null)
+
+// True if extractFeatures(mbid) would resolve from cache without a network call.
+export function hasFeaturesCached(mbid) {
+  const entry = featuresCache.get(mbid);
+  // Only count settled (non-promise) entries as a guaranteed network-free hit.
+  return entry !== undefined && !(entry instanceof Promise);
+}
+
 // Get MBID from ISRC using MusicBrainz
 export async function getMBIDFromISRC(isrc) {
-  const res = await fetch(
-    `/.netlify/functions/musicProxy?path=/ws/2/recording?query=isrc:${isrc}&fmt=json`,
-    {
-      headers: {
-        "User-Agent": "Fetchify/1.0 (contact@yourapp.com)", // MusicBrainz requires this
-      },
-    }
-  );
-  if (!res.ok) throw new Error("MusicBrainz ISRC lookup failed");
-  const data = await res.json();
-  return data.recordings?.[0]?.id || null; // first MBID
+  if (mbidCache.has(isrc)) return mbidCache.get(isrc);
+
+  const promise = (async () => {
+    const res = await fetch(
+      `/.netlify/functions/musicProxy?path=/ws/2/recording?query=isrc:${isrc}&fmt=json`,
+      {
+        headers: {
+          "User-Agent": "Fetchify/1.0 (contact@yourapp.com)", // MusicBrainz requires this
+        },
+      }
+    );
+    if (!res.ok) throw new Error("MusicBrainz ISRC lookup failed");
+    const data = await res.json();
+    return data.recordings?.[0]?.id || null; // first MBID
+  })();
+
+  // Cache the promise so concurrent callers share it; on failure, drop it so
+  // a later call can retry instead of caching the rejection forever.
+  mbidCache.set(isrc, promise);
+  try {
+    const mbid = await promise;
+    mbidCache.set(isrc, mbid);
+    return mbid;
+  } catch (err) {
+    mbidCache.delete(isrc);
+    throw err;
+  }
 }
 
 // Get high-level features (mood, danceability, genre, etc.)
@@ -89,6 +119,24 @@ export async function getABLowLevel(mbid) {
 // Replace your extractFeatures function in musicAnalysis.js with this improved version
 
 export async function extractFeatures(mbid) {
+  if (featuresCache.has(mbid)) return featuresCache.get(mbid);
+
+  const promise = extractFeaturesUncached(mbid);
+
+  // Cache the in-flight promise so concurrent callers share one fetch; replace
+  // it with the resolved value, or drop it on failure so retries are possible.
+  featuresCache.set(mbid, promise);
+  try {
+    const features = await promise;
+    featuresCache.set(mbid, features);
+    return features;
+  } catch (err) {
+    featuresCache.delete(mbid);
+    throw err;
+  }
+}
+
+async function extractFeaturesUncached(mbid) {
   const url = `https://acousticbrainz.org/api/v1/${mbid}/high-level?map_classes=true&fmt=json`;
   const res = await fetch(url);
 
@@ -97,7 +145,7 @@ export async function extractFeatures(mbid) {
     const resetIn = res.headers.get("X-RateLimit-Reset-In") || 5;
     console.warn(`Rate limited. Retrying in ${resetIn}s...`);
     await new Promise(r => setTimeout(r, resetIn * 1000));
-    return extractFeatures(mbid); // retry once
+    return extractFeaturesUncached(mbid); // retry once (bypass cache to avoid awaiting our own in-flight promise)
   }
 
   if (!res.ok) throw new Error(`AB high-level fetch failed for ${mbid}`);
@@ -110,7 +158,7 @@ export async function extractFeatures(mbid) {
     const resetIn = lowRes.headers.get("X-RateLimit-Reset-In") || 5;
     console.warn(`Rate limited on low-level. Retrying in ${resetIn}s...`);
     await new Promise(r => setTimeout(r, resetIn * 1000));
-    return extractFeatures(mbid);
+    return extractFeaturesUncached(mbid);
   }
   if (!lowRes.ok) throw new Error(`AB low-level fetch failed for ${mbid}`);
   const low = await lowRes.json();
@@ -133,7 +181,9 @@ export async function extractFeatures(mbid) {
 
   const fusion = (dance + energy + valence + flux) / 4;
 
-  return { dance, energy, valence, flux, tempo, hasLyrics, genre, title, artist, fusion };
+  // Expose the raw high/low payloads so callers that need richer fusion
+  // (e.g. fuseFeatures) can reuse this single fetch instead of refetching.
+  return { dance, energy, valence, flux, tempo, hasLyrics, genre, title, artist, fusion, raw: { high, low } };
 }
 
 // Simplified, safer vocal detection

@@ -21,8 +21,12 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [waiting, setWaiting] = useState(true); // loader until user plays
 
+  // Recommendation result status
+  const [recError, setRecError] = useState(null);
+  const [hasSearched, setHasSearched] = useState(false);
+
   // Custom hooks
-  const { features, loading: analysisLoading } = useTrackAnalysis(token, currentTrack);
+  const { features, error: analysisError } = useTrackAnalysis(token, currentTrack);
 
   // Authentication effects
   useEffect(() => {
@@ -87,16 +91,19 @@ export default function App() {
     
     setLoading(true);
     setTracks([]);
+    setRecError(null);
+    setHasSearched(true);
 
     try {
       const recommendationService = new RecommendationService(token, currentTrack);
       const results = await recommendationService.findRecommendations(tuneData);
       setTracks(results);
-      
+
       console.log(`Found ${results.length} recommendations`);
     } catch (err) {
       console.error("Error finding recommendations:", err);
       setTracks([]);
+      setRecError(err.message || "Something went wrong while finding songs.");
     } finally {
       setLoading(false);
     }
@@ -118,6 +125,9 @@ export default function App() {
       features={features}
       tracks={tracks}
       loading={loading}
+      analysisError={analysisError}
+      recError={recError}
+      hasSearched={hasSearched}
       onFindSimilar={handleFindSimilar}
       onLogout={logout}
     />
@@ -226,14 +236,17 @@ const ActionButtons = ({ onFindSimilar, loading }) => (
 );
 
 // Main interface component
-const MainInterface = ({ 
-  user, 
-  currentTrack, 
-  features, 
-  tracks, 
-  loading, 
-  onFindSimilar, 
-  onLogout 
+const MainInterface = ({
+  user,
+  currentTrack,
+  features,
+  tracks,
+  loading,
+  analysisError,
+  recError,
+  hasSearched,
+  onFindSimilar,
+  onLogout
 }) => (
   <div style={{
     minHeight: "100vh",
@@ -257,6 +270,14 @@ const MainInterface = ({
       {/* Current Track Display */}
       {currentTrack && <CurrentTrackDisplay track={currentTrack} />}
 
+      {/* Analysis warning — track couldn't be analyzed via AcousticBrainz */}
+      {analysisError && (
+        <StatusBanner tone="warning">
+          We couldn't analyze this track (it may not be in AcousticBrainz), so
+          similar-song matching may be limited.
+        </StatusBanner>
+      )}
+
       {/* Radio UI */}
       <div style={{ marginBottom: "30px" }}>
         <RadioUI
@@ -273,8 +294,14 @@ const MainInterface = ({
       {/* Action Buttons */}
       <ActionButtons onFindSimilar={onFindSimilar} loading={loading} />
 
-      {/* Track List */}
+      {/* Track List + result status */}
       <TrackList tracks={tracks} />
+      <ResultStatus
+        loading={loading}
+        recError={recError}
+        hasSearched={hasSearched}
+        resultCount={tracks.length}
+      />
 
       {/* Logout */}
       <LogoutButton onLogout={onLogout} />
@@ -305,6 +332,56 @@ const Header = ({ user }) => (
     </p>
   </div>
 );
+
+// Inline status banner (warning/error tones)
+const StatusBanner = ({ tone = "warning", children }) => {
+  const palette = tone === "error"
+    ? { bg: "#fdecea", border: "#d93025", text: "#a50e0e" }
+    : { bg: "#fff8e1", border: "#F26B1D", text: "#8a5300" };
+  return (
+    <div style={{
+      maxWidth: 600,
+      margin: "0 auto 24px auto",
+      padding: "12px 16px",
+      backgroundColor: palette.bg,
+      border: `2px solid ${palette.border}`,
+      borderRadius: "10px",
+      color: palette.text,
+      fontSize: "14px",
+      textAlign: "center",
+      lineHeight: 1.4
+    }}>
+      {children}
+    </div>
+  );
+};
+
+// Result-area status: distinguishes loading / error / no matches / done
+const ResultStatus = ({ loading, recError, hasSearched, resultCount }) => {
+  if (loading) {
+    return (
+      <div style={{ textAlign: "center", color: "#666", marginTop: "16px", fontSize: "14px" }}>
+        Searching for similar songs… this can take a moment.
+      </div>
+    );
+  }
+
+  if (recError) {
+    return <StatusBanner tone="error">{recError}</StatusBanner>;
+  }
+
+  // Searched, finished, but nothing came back
+  if (hasSearched && resultCount === 0) {
+    return (
+      <StatusBanner tone="warning">
+        No similar songs found for this track. Try another song — tracks missing
+        from AcousticBrainz can't be matched.
+      </StatusBanner>
+    );
+  }
+
+  return null;
+};
 
 // Logout button component
 const LogoutButton = ({ onLogout }) => (

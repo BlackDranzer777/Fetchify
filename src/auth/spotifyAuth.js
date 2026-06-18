@@ -78,6 +78,8 @@ export async function handleCallback() {
 
   const token = {
     access_token: data.access_token,
+    // expires_in is in seconds; convert to ms. (Previously multiplied by 5000,
+    // which marked the token valid 5x too long and caused mid-session 401s.)
     expires_at: Date.now() + data.expires_in * 1000,
   };
 

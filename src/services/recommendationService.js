@@ -1,8 +1,9 @@
 // src/services/recommendationService.js
-import { 
-  getMBIDFromISRC, 
-  getSimilarMBIDs, 
-  extractFeatures 
+import {
+  getMBIDFromISRC,
+  getSimilarMBIDs,
+  extractFeatures,
+  hasFeaturesCached
 } from '../api/musicAnalysis';
 import { getTrackById } from '../api/spotify';
 import { calculateSimilarityScore, calculateCustomSimilarity } from '../utils/similarityUtils';
@@ -136,14 +137,17 @@ export class RecommendationService {
     if (seenTracks.has(trackKey) || track.id === this.currentTrack.id) return null;
     
     try {
-      await new Promise(r => setTimeout(r, 800)); // Rate limit
-      
       const isrc = track.external_ids?.isrc;
       if (!isrc) return null;
-      
+
       const mbid = await getMBIDFromISRC(isrc);
       if (!mbid) return null;
-      
+
+      // Only pay the rate-limit delay when features aren't already cached.
+      if (!hasFeaturesCached(mbid)) {
+        await new Promise(r => setTimeout(r, 800));
+      }
+
       const features = await extractFeatures(mbid);
       if (!features) return null;
       
@@ -215,7 +219,11 @@ export class RecommendationService {
         const c = candidates[i];
         
         try {
-          await new Promise(r => setTimeout(r, 1000));
+          // Only pay the rate-limit delay when this lookup will actually hit
+          // the network; cached features resolve instantly.
+          if (!hasFeaturesCached(c.recording_mbid)) {
+            await new Promise(r => setTimeout(r, 1000));
+          }
 
           const feat = await extractFeatures(c.recording_mbid);
           if (!feat || !feat.title || !feat.artist) continue;
